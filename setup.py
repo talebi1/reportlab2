@@ -593,7 +593,7 @@ def main():
     get_glyphlist_module(PACKAGE_DIR)
     try:
         setup(
-            name="reportlab",
+            name="reportlab2",
             version=get_version(),
             license="BSD license (see license.txt for details), Copyright (c) 2000-2018, ReportLab Inc.",
             description="The Reportlab Toolkit",
