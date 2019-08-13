@@ -597,11 +597,11 @@ def main():
             version=get_version(),
             license="BSD license (see license.txt for details), Copyright (c) 2000-2018, ReportLab Inc.",
             description="The Reportlab Toolkit",
-            long_description="""The ReportLab Toolkit. An Open Source Python library for generating PDFs and graphics.""",
+            long_description="""This is a fork of reportlab with added AES-256 encryption (AESV3)""",
 
             author="Andy Robinson, Robin Becker, the ReportLab team and the community",
             author_email="reportlab-users@lists2.reportlab.com",
-            url="http://www.reportlab.com/",
+            url="https://github.com/talebi1/reportlab2",
             packages=[
                     'reportlab',
                     'reportlab.graphics.charts',
@@ -630,6 +630,7 @@ def main():
                 'Programming Language :: Python :: 3.4',
                 'Programming Language :: Python :: 3.5',
                 'Programming Language :: Python :: 3.6',
+                'Programming Language :: Python :: 3.7',
                 ],
             
             #this probably only works for setuptools, but distutils seems to ignore it
