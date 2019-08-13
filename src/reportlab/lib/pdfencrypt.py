@@ -406,19 +406,21 @@ def encodePDF(key, objectNumber, generationNumber, string, revision=5):
         encrypted = ArcIV(key).encode(string)
         #print 'encrypted=', hexText(encrypted)
     elif revision == 5:
+        iv = Random.new().read(16)
+        aes_cipher = AES.new(key, AES.MODE_CBC, iv)
+        
         # pkcs7 style padding so that the size of the encrypted block is multiple of 16 
         string_len = len(string)
+        paddin = ""
         padding_len = (16 - (string_len % 16)) if string_len > 16 else (16 - string_len)
         if padding_len > 0:
             padding = chr(padding_len) * padding_len
             
-            if isinstance(string, str):
-                string += padding
-            else:
-                string += bytes(padding, "ascii")
-                
-        iv = Random.new().read(16)
-        aes_cipher = AES.new(key, AES.MODE_CBC, iv)
+        if isinstance(string, str):
+            string = (string + padding).encode("utf-8")    
+        else:
+            string += bytes(padding, "ascii")
+            
         encrypted = iv + aes_cipher.encrypt(string)
 
     if DEBUG: print('encodePDF(%s,%s,%s,%s,%s)==>%s' % tuple([hexText(str(x)) for x in (key, objectNumber, generationNumber, string, revision,encrypted)]))
