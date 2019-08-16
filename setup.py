@@ -634,7 +634,7 @@ def main():
                 ],
             
             #this probably only works for setuptools, but distutils seems to ignore it
-            install_requires=['pillow>=4.0.0', 'pycryptodome>=3.8.2'],
+            install_requires=['pillow>=4.0.0', 'pyaes>=1.6.1'],
             )
         print()
         print('########## SUMMARY INFO #########')
