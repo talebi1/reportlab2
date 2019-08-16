@@ -12,8 +12,7 @@ from reportlab.platypus.flowables import Flowable
 from reportlab import rl_config, ascii
 
 from hashlib import sha256
-from Crypto.Cipher import AES
-from Crypto import Random
+import pyaes
 
 #AR debug hooks - leaving in for now
 CLOBBERID = 0  # set a constant Doc ID to allow comparison with other software like iText
@@ -116,11 +115,11 @@ class StandardEncryption:
             iv  = b'\x00' * 16
 
             # Random User salts
-            uvs = Random.new().read(8)
-            uks = Random.new().read(8)
+            uvs = os.urandom(8)
+            uks = os.urandom(8)
             
             # the main encryption key
-            self.key = Random.new().read(32)
+            self.key = os.urandom(32)
             
             if DEBUG:
                 print("self.key (hex)  = %s" % hexText(self.key))
@@ -134,15 +133,17 @@ class StandardEncryption:
 
             # Calculate the User encryption key (UE)
             md = sha256(self.userPassword[:127] + uks)
-            aes_cipher = AES.new(md.digest(), AES.MODE_CBC, iv)
-            self.UE = aes_cipher.encrypt(self.key)
+            
+            encrypter = pyaes.Encrypter(pyaes.AESModeOfOperationCBC(md.digest(), iv=iv))
+            self.UE = encrypter.feed(self.key)
+            self.UE += encrypter.feed()
 
             if DEBUG:
                 print("self.UE (hex)  = %s" % hexText(self.UE))
 
             # Random Owner salts
-            ovs = Random.new().read(8)
-            oks = Random.new().read(8)
+            ovs = os.urandom(8)
+            oks = os.urandom(8)
 
             # Calculate the hash of the Owner password (U)
             md = sha256(self.ownerPassword[:127] + ovs + self.U )
@@ -153,8 +154,10 @@ class StandardEncryption:
 
             # Calculate the User encryption key (OE)
             md = sha256(self.ownerPassword[:127] + oks + self.U)
-            aes_cipher = AES.new(md.digest(), AES.MODE_CBC, iv)
-            self.OE =  aes_cipher.encrypt(self.key)
+
+            encrypter = pyaes.Encrypter(pyaes.AESModeOfOperationCBC(md.digest(), iv=iv))
+            self.OE = encrypter.feed(self.key)
+            self.OE += encrypter.feed()
 
             if DEBUG:
                 print("self.OE (hex)  = %s" % hexText(self.OE))
@@ -180,8 +183,9 @@ class StandardEncryption:
             ]
 
             # the permission array should be enrypted in the Perms field
-            aes_cipher = AES.new(self.key, AES.MODE_CBC, iv)            
-            self.Perms = aes_cipher.encrypt(bytes(permsarr))
+            encrypter = pyaes.Encrypter(pyaes.AESModeOfOperationCBC(self.key, iv=iv))
+            self.Perms = encrypter.feed(bytes(permsarr))
+            self.Perms += encrypter.feed()
                         
             if DEBUG:
                 print("self.Perms (hex)  = %s" % hexText(self.Perms))
@@ -406,12 +410,12 @@ def encodePDF(key, objectNumber, generationNumber, string, revision=5):
         encrypted = ArcIV(key).encode(string)
         #print 'encrypted=', hexText(encrypted)
     elif revision == 5:
-        iv = Random.new().read(16)
-        aes_cipher = AES.new(key, AES.MODE_CBC, iv)
-        
+        iv = os.urandom(16)
+        encrypter = pyaes.Encrypter(pyaes.AESModeOfOperationCBC(key, iv=iv))
+       
         # pkcs7 style padding so that the size of the encrypted block is multiple of 16 
         string_len = len(string)
-        paddin = ""
+        padding = ""
         padding_len = (16 - (string_len % 16)) if string_len > 16 else (16 - string_len)
         if padding_len > 0:
             padding = chr(padding_len) * padding_len
@@ -421,7 +425,8 @@ def encodePDF(key, objectNumber, generationNumber, string, revision=5):
         else:
             string += bytes(padding, "ascii")
             
-        encrypted = iv + aes_cipher.encrypt(string)
+        encrypted = iv + encrypter.feed(string)
+        encrypted += encrypter.feed()
 
     if DEBUG: print('encodePDF(%s,%s,%s,%s,%s)==>%s' % tuple([hexText(str(x)) for x in (key, objectNumber, generationNumber, string, revision,encrypted)]))
     return encrypted
