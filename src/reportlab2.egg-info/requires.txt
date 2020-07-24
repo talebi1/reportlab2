@@ -1,0 +1,2 @@
+pillow>=4.0.0
+pycryptodome>=3.9.8

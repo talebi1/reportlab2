@@ -1,7 +1,6 @@
 src/reportlab/fonts
 build
 dist
-src/reportlab2.egg-info
 src/rl_addons/renderPM/libart_lgpl/art_config.h
 src/reportlab/pdfbase/_glyphlist.py
 **/__pycache__/**
