@@ -1,0 +1,5 @@
+pillow>=9.0.0
+pycryptodome>=3.9.8
+
+[RLPYCAIRO]
+rlPyCairo>=0.0.5
