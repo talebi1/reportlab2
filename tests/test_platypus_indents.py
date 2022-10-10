@@ -3,10 +3,10 @@
 """Tests for context-dependent indentation
 """
 __version__='3.3.0'
-from reportlab import xrange
 from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation
 setOutDir(__name__)
 import sys, os, random
+from reportlab.rl_config import invariant as rl_invariant
 from operator import truth
 import unittest
 from reportlab.pdfbase.pdfmetrics import stringWidth
@@ -64,7 +64,8 @@ class IndentTestCase(unittest.TestCase):
     "Test multi-page splitting of paragraphs (eyeball-test)."
 
     def test0(self):
-        "This makes one long multi-page paragraph."
+        "IndentTestCase test0"
+        if rl_invariant: random.seed(1479316371)
 
         # Build story.
         story = []
@@ -148,7 +149,7 @@ class IndentTestCase(unittest.TestCase):
         storyAdd(Paragraph("Below we split to two new frames with dark green borders",bt))
         storyAdd(FrameSplitter('templateX',['XF4','XF5'], adjustHeight=False))
         storyAdd(FrameBG(start=True,color=lightgreen,strokeColor=toColor('red'),strokeWidth=1))
-        for i in xrange(15):
+        for i in range(15):
             storyAdd(Paragraph("We should have a light green background here %d" % i,bt))
         storyAdd(Spacer(6,6))
         storyAdd(FrameBG(start=False))

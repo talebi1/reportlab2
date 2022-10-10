@@ -13,16 +13,15 @@ Other functions let you create a PM drawing as string or into a PM buffer.
 Execute the script to see some test drawings."""
 
 from reportlab.graphics.shapes import *
-from reportlab.graphics.renderbase import StateTracker, getStateDelta, renderScaledDrawing
+from reportlab.graphics.renderbase import getStateDelta, renderScaledDrawing
 from reportlab.pdfbase.pdfmetrics import getFont, unicode2T1
-from math import sin, cos, pi, ceil
-from reportlab.lib.utils import getStringIO, getBytesIO, open_and_read, isUnicode
-from reportlab import rl_config, ascii
-
-class RenderPMError(Exception):
-    pass
+from reportlab.lib.utils import isUnicode
+from reportlab import rl_config
+from .utils import setFont as _setFont, RenderPMError
 
 import os, sys
+from io import BytesIO, StringIO
+from math import sin, cos, pi, ceil
 
 try:
     from reportlab.graphics import _renderPM
@@ -136,7 +135,9 @@ class _PMRenderer(Renderer):
         if dstH is None: dstH = srcH
         self._canvas._aapixbuf(
                 image.x, image.y, dstW, dstH,
-                (im.tobytes if hasattr(im,'tobytes') else im.tostring)(), srcW, srcH, 3,
+                (im if self._canvas._backend=='rlPyCairo' #rlPyCairo has a from_pil method
+                    else (im.tobytes if hasattr(im,'tobytes') else im.tostring)()),
+                srcW, srcH, 3,
                 )
 
     def drawCircle(self, circle):
@@ -168,7 +169,8 @@ class _PMRenderer(Renderer):
     def drawString(self, stringObj):
         canv = self._canvas
         fill = canv.fillColor
-        if fill is not None:
+        textRenderMode = getattr(stringObj,'textRenderMode',0)
+        if fill is not None or textRenderMode:
             S = self._tracker.getState()
             text_anchor = S['textAnchor']
             fontName = S['fontName']
@@ -186,7 +188,12 @@ class _PMRenderer(Renderer):
                     x -= numericXShift(text_anchor,text,textLen,fontName,fontSize,stringObj.encoding)
                 else:
                     raise ValueError('bad value for textAnchor '+str(text_anchor))
-            canv.drawString(x,y,text,_fontInfo=(fontName,fontSize))
+            oldTextRenderMode = canv.textRenderMode
+            canv.textRenderMode = textRenderMode
+            try:
+                canv.drawString(x,y,text,_fontInfo=(fontName,fontSize))
+            finally:
+                canv.textRenderMode = oldTextRenderMode
 
     def drawPath(self, path):
         c = self._canvas
@@ -237,20 +244,6 @@ class _PMRenderer(Renderer):
                 c.pathFill(fillMode)
             c.pathStroke()
 
-def _setFont(gs,fontName,fontSize):
-    try:
-        gs.setFont(fontName,fontSize)
-    except ValueError as e:
-        if not e.args[0].endswith("Can't find font!"): raise
-        #here's where we try to add a font to the canvas
-        try:
-            f = getFont(fontName)
-            _renderPM.makeT1Font(fontName,f.face.findT1File(),f.encoding.vector,open_and_read)
-        except:
-            s1, s2 = list(map(str,sys.exc_info()[:2]))
-            raise RenderPMError("Can't setFont(%s) missing the T1 files?\nOriginally %s: %s" % (fontName,s1,s2))
-        gs.setFont(fontName,fontSize)
-
 def _convert2pilp(im):
     Image = _getImage()
     return im.convert("P", dither=Image.NONE, palette=Image.ADAPTIVE)
@@ -277,18 +270,33 @@ def _saveAsPICT(im,fn,fmt,transparent=None):
 
 BEZIER_ARC_MAGIC = 0.5522847498     #constant for drawing circular arcs w/ Beziers
 class PMCanvas:
-    def __init__(self,w,h,dpi=72,bg=0xffffff,configPIL=None):
+    def __init__(self,w,h,dpi=72,bg=0xffffff,configPIL=None,backend=rl_config.renderPMBackend):
         '''configPIL dict is passed to image save method'''
         scale = dpi/72.0
         w = int(w*scale+0.5)
         h = int(h*scale+0.5)
-        self.__dict__['_gs'] = _renderPM.gstate(w,h,bg=bg)
+        self.__dict__['_gs'] = self._getGState(w,h,bg,backend)
         self.__dict__['_bg'] = bg
         self.__dict__['_baseCTM'] = (scale,0,0,scale,0,0)
         self.__dict__['_clipPaths'] = []
         self.__dict__['configPIL'] = configPIL
         self.__dict__['_dpi'] = dpi
+        self.__dict__['_backend'] = backend
         self.ctm = self._baseCTM
+
+    @staticmethod
+    def _getGState(w, h, bg, backend='_renderPM', fmt='RGB24'):
+        if backend=='_renderPM':
+            return _renderPM.gstate(w,h,bg=bg)
+        elif backend=='rlPyCairo':
+            try:
+                from rlPyCairo import GState
+            except ImportError:
+                raise RenderPMError('cannot import rlPyCairo; perhaps it needs to be installed!')
+            else:
+                return GState(w,h,bg,fmt=fmt)
+        else:
+            raise RenderPMError('Invalid backend, %r, given to PMCanvas' % backend)
 
     def _drawTimeResize(self,w,h,bg=None):
         if bg is None: bg = self._bg
@@ -306,7 +314,7 @@ class PMCanvas:
 
     def toPIL(self):
         im = _getImage().new('RGB', size=(self._gs.width, self._gs.height))
-        getattr(im,'frombytes',getattr(im,'fromstring'))(self._gs.pixBuf)
+        (getattr(im,'frombytes',None) or getattr(im,'fromstring'))(self._gs.pixBuf)
         return im
 
     def saveToFile(self,fn,fmt=None):
@@ -335,20 +343,9 @@ class PMCanvas:
         elif fmt in ('PCT','PICT'):
             return _saveAsPICT(im,fn,fmt,transparent=configPIL.get('transparent',None))
         elif fmt in ('PNG','BMP', 'PPM'):
-            if fmt=='PNG':
-                try:
-                    from PIL import PngImagePlugin
-                except ImportError:
-                    import PngImagePlugin
-            elif fmt=='BMP':
-                try:
-                    from PIL import BmpImagePlugin
-                except ImportError:
-                    import BmpImagePlugin
+            pass
         elif fmt in ('JPG','JPEG'):
             fmt = 'JPEG'
-        elif fmt in ('GIF',):
-            pass
         else:
             raise RenderPMError("Unknown image kind %s" % fmt)
         if fmt=='TIFF':
@@ -377,7 +374,7 @@ class PMCanvas:
             markfilename(fn,ext=fmt)
 
     def saveToString(self,fmt='GIF'):
-        s = getBytesIO()
+        s = BytesIO()
         self.saveToFile(s,fmt=fmt)
         return s.getvalue()
 
@@ -485,55 +482,60 @@ class PMCanvas:
             self.curveTo(x1,y1,x2,y2,x3,y3)
 
     def drawCentredString(self, x, y, text, text_anchor='middle'):
-        if self.fillColor is not None:
-            textLen = stringWidth(text, self.fontName,self.fontSize)
-            if text_anchor=='end':
-                x -= textLen
-            elif text_anchor=='middle':
-                x -= textLen/2.
-            elif text_anchor=='numeric':
-                x -= numericXShift(text_anchor,text,textLen,self.fontName,self.fontSize)
-            self.drawString(x,y,text)
+        self.drawString(x,y,text, text_anchor=text_anchor)
 
     def drawRightString(self, text, x, y):
-        self.drawCentredString(text,x,y,text_anchor='end')
+        self.drawString(text,x,y,text_anchor='end')
 
-    def drawString(self, x, y, text, _fontInfo=None):
+    def drawString(self, x, y, text, _fontInfo=None, text_anchor='left'):
         gs = self._gs
-        if _fontInfo:
+        gs_fontSize = gs.fontSize
+        gs_fontName = gs.fontName
+        if _fontInfo and _fontInfo!=(gs_fontSize,gs_fontName):
             fontName, fontSize = _fontInfo
+            _setFont(gs,fontName,fontSize)
         else:
-            fontSize = gs.fontSize
-            fontName = gs.fontName
-        try:
-            gfont=getFont(gs.fontName)
-        except:
-            gfont = None
-        font = getFont(fontName)
-        if font._dynamicFont:
-            gs.drawString(x,y,text)
-        else:
-            fc = font
-            if not isUnicode(text):
-                try:
-                    text = text.decode('utf8')
-                except UnicodeDecodeError as e:
-                    i,j = e.args[2:4]
-                    raise UnicodeDecodeError(*(e.args[:4]+('%s\n%s-->%s<--%s' % (e.args[4],text[i-10:i],text[i:j],text[j:j+10]),)))
+            fontName = gs_fontName
+            fontSize = gs_fontSize
 
-            FT = unicode2T1(text,[font]+font.substitutionFonts)
-            n = len(FT)
-            nm1 = n-1
-            for i in range(n):
-                f, t = FT[i]
-                if f!=fc:
-                    _setFont(gs,f.fontName,fontSize)
-                    fc = f
-                gs.drawString(x,y,t)
-                if i!=nm1:
-                    x += f.stringWidth(t.decode(f.encName),fontSize)
-            if font!=fc:
-                _setFont(gs,fontName,fontSize)
+        try:
+            if text_anchor in ('end','middle', 'end'):
+                textLen = stringWidth(text, fontName,fontSize)
+                if text_anchor=='end':
+                    x -= textLen
+                elif text_anchor=='middle':
+                    x -= textLen/2.
+                elif text_anchor=='numeric':
+                    x -= numericXShift(text_anchor,text,textLen,fontName,fontSize)
+
+            if self._backend=='rlPyCairo':
+                gs.drawString(x,y,text)
+            else:
+                font = getFont(fontName)
+                if font._dynamicFont:
+                    gs.drawString(x,y,text)
+                else:
+                    fc = font
+                    if not isUnicode(text):
+                        try:
+                            text = text.decode('utf8')
+                        except UnicodeDecodeError as e:
+                            i,j = e.args[2:4]
+                            raise UnicodeDecodeError(*(e.args[:4]+('%s\n%s-->%s<--%s' % (e.args[4],text[i-10:i],text[i:j],text[j:j+10]),)))
+
+                    FT = unicode2T1(text,[font]+font.substitutionFonts)
+                    n = len(FT)
+                    nm1 = n-1
+                    for i in range(n):
+                        f, t = FT[i]
+                        if f!=fc:
+                            _setFont(gs,f.fontName,fontSize)
+                            fc = f
+                        gs.drawString(x,y,t)
+                        if i!=nm1:
+                            x += f.stringWidth(t.decode(f.encName),fontSize)
+        finally:
+            gs.setFont(gs_fontName,gs_fontSize)
 
     def line(self,x1,y1,x2,y2):
         if self.strokeColor is not None:
@@ -660,29 +662,29 @@ class PMCanvas:
     def setLineWidth(self,width):
         self.strokeWidth = width
 
-def drawToPMCanvas(d, dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_):
+def drawToPMCanvas(d, dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_,backend=rl_config.renderPMBackend):
     d = renderScaledDrawing(d)
-    c = PMCanvas(d.width, d.height, dpi=dpi, bg=bg, configPIL=configPIL)
+    c = PMCanvas(d.width, d.height, dpi=dpi, bg=bg, configPIL=configPIL, backend=backend)
     draw(d, c, 0, 0, showBoundary=showBoundary)
     return c
 
-def drawToPIL(d, dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_):
-    return drawToPMCanvas(d, dpi=dpi, bg=bg, configPIL=configPIL, showBoundary=showBoundary).toPIL()
+def drawToPIL(d, dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_,backend=rl_config.renderPMBackend):
+    return drawToPMCanvas(d, dpi=dpi, bg=bg, configPIL=configPIL, showBoundary=showBoundary, backend=backend).toPIL()
 
-def drawToPILP(d, dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_):
+def drawToPILP(d, dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_,backend=rl_config.renderPMBackend):
     Image = _getImage()
-    im = drawToPIL(d, dpi=dpi, bg=bg, configPIL=configPIL, showBoundary=showBoundary)
+    im = drawToPIL(d, dpi=dpi, bg=bg, configPIL=configPIL, showBoundary=showBoundary,backend=backend)
     return im.convert("P", dither=Image.NONE, palette=Image.ADAPTIVE)
 
-def drawToFile(d,fn,fmt='GIF', dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_):
+def drawToFile(d,fn,fmt='GIF', dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_,backend=rl_config.renderPMBackend):
     '''create a pixmap and draw drawing, d to it then save as a file
     configPIL dict is passed to image save method'''
-    c = drawToPMCanvas(d, dpi=dpi, bg=bg, configPIL=configPIL, showBoundary=showBoundary)
+    c = drawToPMCanvas(d, dpi=dpi, bg=bg, configPIL=configPIL, showBoundary=showBoundary,backend=backend)
     c.saveToFile(fn,fmt)
 
-def drawToString(d,fmt='GIF', dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_):
-    s = getBytesIO()
-    drawToFile(d,s,fmt=fmt, dpi=dpi, bg=bg, configPIL=configPIL)
+def drawToString(d,fmt='GIF', dpi=72, bg=0xffffff, configPIL=None, showBoundary=rl_config._unset_,backend=rl_config.renderPMBackend):
+    s = BytesIO()
+    drawToFile(d,s,fmt=fmt, dpi=dpi, bg=bg, configPIL=configPIL,backend=backend)
     return s.getvalue()
 
 save = drawToFile
@@ -725,7 +727,7 @@ def test(outDir='pmout', shout=False):
         msg = 'Problem drawing %s fmt=%s file'%(name,fmt)
         if shout or verbose>2: print(msg)
         errs.append('<br/><h2 style="color:red">%s</h2>' % msg)
-        buf = getStringIO()
+        buf = StringIO()
         traceback.print_exc(file=buf)
         errs.append('<pre>%s</pre>' % escape(buf.getvalue()))
 

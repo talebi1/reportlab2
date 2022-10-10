@@ -3,7 +3,7 @@ CHANGES
 
 This is a summary of changes made to the reportlab source code for each release.
 Please refer to subversion backlogs (using the release dates) for more details
-or for releases which we have not provide a higher level changes list for.
+or for releases which we have not provide a hig`her level changes list for.
 E.g. to retrieve the changes made between release 3.4 and release 3.5, type::
 
   $ hg log -r 54ce2469ba5c
@@ -11,6 +11,322 @@ E.g. to retrieve the changes made between release 3.4 and release 3.5, type::
 The contributors lists are in no order and apologies to those accidentally not
 mentioned. If we missed you, please let us know!
 
+CHANGES  3.6.11  24/06/2022
+---------------------------
+	* support HORIZONTAL2 & VERTICAL2 table cell backgrounds; as suggested by Sina Khelil < sina at khelil dot com >
+	* support general LINEAR & RADIAL gradient table cell backgrounds
+	* support ShowBoundaryValue in canv.drawImage
+
+CHANGES  3.6.10  31/05/2022
+---------------------------
+	* fix symlink looping in setup.py reported by Michał Górny &lt; mgorny at gentoo dot org &gt;
+	* allow bearerBox attribute for some barcodes
+	* require pillow>=9.0.0 patch contributed by Claude Paroz claude at 2xlibre.net
+	* Apply Claude Paroz  < claude at 2xlibre dot net > patch to assume hashlib md5 exists
+	* ImageReader updated to allow deepcopy; similarly for doctemplate.onDrawStr
+	* fix 3.11.0b2 regression in rl_safe_eval.
+	* apply massive contribution for Table inRowSplit from Lennart Regebro < lregebro at shoobx dot com >
+
+CHANGES  3.6.9   22/03/2022
+---------------------------
+	* fix up _rl_accel.c 0.81 to allow better error messages and support python 3.11.0a6
+	* change the cibuildwheel setup to support macos M1 build
+
+CHANGES  3.6.8   28/02/2022
+---------------------------
+	* remove old Python2 constructs; patch from Claude Paroz < claude at 2xlibre dot net >
+
+CHANGES  3.6.7   18/02/2022
+---------------------------
+	* Remove use of cPickle; patch from Claude Paroz < claude at 2xlibre dot net >
+	* Remove unneccessary object inheritance; patch by Claude Paroz
+	* minor changes to python rendering in shapes.Drawing
+	* remove jython (dead project no python3) patch by  Claude Paroz < claude at 2xlibre dot net >
+	* remove unicodeT/bytesT patch by  Claude Paroz < claude at 2xlibre dot net >
+	* import directly from string module patch by  Claude Paroz < claude at 2xlibre dot net >
+	* eliminate getBytesIO and getStringIO patch by  Claude Paroz < claude at 2xlibre dot net >
+	* remove unused and indirect imports patch by  Claude Paroz < claude at 2xlibre dot net >
+
+CHANGES  3.6.6	 24/01/2022
+---------------------------
+	* remove uniChr alias of chr (patch contribution from Claude Paroz)
+	* modify pdfdoc template to be eventually compatible with pikepdf suggested by Lennart Regebro lregebro at shoobx.com
+	* fix bug in table gradient bg; contribution by Justin Brzozoski justin.brzozoski at gmail.com
+	* fix bug in validateSetattr (__dict__) discovered and reported by Chris Buergi  cb at enerweb dot ch
+	* fix handling of ddfStyle in XLabel class
+
+CHANGES  3.6.5	 24/12/2021
+---------------------------
+	* only skip listwrap on for small height objects
+	* changes to allow for deprecated stuff in Python-3.11
+
+CHANGES  3.6.4	  7/12/2021
+---------------------------
+	* try to improve multi-frag paragraph justification
+	* fix justification condition
+	* allow validator OneOf to take re.Pattern
+
+CHANGES  3.6.3	  4/11/2021
+---------------------------
+	* modernisation of para.py contribution from <Andrews Searle at BMC dot com>
+	* many changes to .github workflows
+	* changes to setup.py to support cibuildwheel
+	* _FindSplitterMixin protect against deepcopy failure
+	* allow textAnnotation to have QuadPoints keyword
+
+CHANGES  3.6.2	  1/10/2021
+---------------------------
+	* minor changes to datareader
+	* fix XLabel argument usage
+
+CHANGES  3.6.1	  6/08/2021
+---------------------------
+	* add mock for urlopen calls so tests can run off line. Contribution by Antonio Trande sagitter at fedoraproject dot org
+
+CHANGES  3.6.0	 23/07/2021
+---------------------------
+	* create py-2-3 branch
+	* Cease support for Python-2.7
+
+CHANGES  3.5.68	 25/06/2021
+---------------------------
+	* graphics improve some error messages for renderPM
+	* changed lib.urilt.recursiveImport after errors in python3.10, reflect changes in readJPEGInfo
+	* pdfutils readJPEGInfo extracts dpi if present defaults to (72, 72)
+	* Image flowable allows a useDPI argument
+	* paraparser annotate some errors
+
+CHANGES  3.5.67	 12/04/2021
+---------------------------
+	* Allow unicode PDFString to use encoding directly; fixes bug where colorspace indexes are broken
+	* Ensure PIL images can be size checked
+
+CHANGES  3.5.66	 19/03/2021
+---------------------------
+	* fix obvious bug in renderPS.py cut'n'paste bah :(
+	* fix bug saving to SpooledtemporaryFile's reported by Robert Schroll <rschroll at gmail.com>
+	* fix bug in justified RTL paragraphs example & bugfix contributed by Moshe Uminer <mosheduminer at gmail.com>
+	* fix regex deprecation reported by Jürgen Gmach <juergen.gmach at apis.de>
+
+CHANGES  3.5.65	 10/03/2021
+---------------------------
+	* add yieldNoneSplits utility function
+	* fix BarChart so it lines can have markers and Nones in their data
+
+CHANGES  3.5.64	 09/03/2021
+---------------------------
+	* add ability to have lineplots in barcharts; no support yet for line markers
+	* added checkAttr method to TypedPropertyCollection
+
+CHANGES  3.5.63	 05/03/2021
+---------------------------
+	* ensure setup.py works from sdist; bug reported by Antonio P. Sagitter (sagitter at fedoraproject.org)
+	* restore broken MANIFEST.in somehow overwritten by Robin :(
+
+CHANGES  3.5.62	 03/03/2021
+---------------------------
+	* simplify annotateException and add better error messages for asUnicode/Bytes etc
+	* improve embeddedHyphenation in paragraph.py
+
+CHANGES  3.5.61	 25/02/2021
+---------------------------
+	* add adjustableArrow widget
+	* allow para tag borderPadding attribute
+	* minor cosmetics in renderPM C extension and add fontSize setattr 
+	* allow a bounding box constraint in definePath
+	* efficiency savings in text2Path
+	* refactor transformation math and text2Path functionality	
+	* allow a renderPM plugin cairo backend package rlPyCairo
+
+CHANGES  3.5.60	 22/01/2021
+---------------------------
+	* Allow legend column control of vertical alignment
+	* Allow renderTextMode attribute in reportlab.graphics.shapes.String
+	* Allow renderTextMode drawString handling in renderPDF/PM/PS/SVG
+	* Some fixes to fillMode handling
+
+CHANGES  3.5.59	 04/01/2021
+---------------------------
+	* Minor changes to table rounded corners; some documentation updates
+
+CHANGES  3.5.58	 01/01/2021
+---------------------------
+	* Allow variant corners in Canvas.roundRect
+	* Allow tables to have rounded corners
+
+CHANGES  3.5.57	 27/12/2020
+---------------------------
+	* added ddfStyle to Label
+	* allowed for embedded(and ordinary)Hyphenation to pre-empt splitting when embeddedHyphenation>=2
+	* fix extension escapePDF so it can handle unicode
+	* fix poundsign in Ean5BarcodeWidget
+	* Table can use __styledWrap__ for sizing
+	* test fixes so 3.9 and 2.7 produce same pdf
+
+CHANGES  3.5.56	 10/12/2020
+---------------------------
+	* added .github action wheel.yml
+	* micro change to userguide doc
+
+RELEASE 3.5.56	 01/12/2020
+---------------------------
+	* micro changes for Big Sur in C extensions
+	* allow Drawing.outDir to be a callable for more control in save method
+
+RELEASE 3.5.55	 29/10/2020
+---------------------------
+	* add trustedHosts and trustedSchemes for url management
+	* deifinitely drop 3.5 support (Jon Ribbens points out it may have happened in 3.5.54).
+
+RELEASE 3.5.54	 23/10/2020
+---------------------------
+	* Allow extra fields in AcroForm suggested by Chris Else ubuntu247 at gmail.com
+	* Allow DocTemplate.\_firstPageTemplateIndex to be a list of PageTemplate ids
+	* improve PageBreak repr
+	* minor changes to travis & appveyor scripts; drop forml support for python 3.5
+
+RELEASE 3.5.53	 02/10/2020
+---------------------------
+	* Fix bug that allowed type 0 postscript commands to persist
+
+RELEASE 3.5.52	 01/10/2020
+---------------------------
+	* add support for DataMatrix barcode
+
+RELEASE 3.5.51	 24/09/2020
+---------------------------
+	* fix malloc(0) issue in \_rl_accel.c \_fp_str thanks to Hans-Peter Jansen <hpj@urpla.net> @ openSUSE
+
+RELEASE 3.5.50	 18/09/2020
+---------------------------
+	* Add BM ExtGState option (suggestion by tjj021 @ github
+	* Fix memory leak in \_renderPM.c
+
+RELEASE 3.5.49	 02/09/2020
+---------------------------
+	* ViewerPreferencesPDFDictionary add /Duplex as possibility
+	* Doctemplate add support for all ViewerPreferencesPDFDictionary keys
+	* fix bugs in USPS_4State; Barcode inherits from Flowable and object.
+
+RELEASE 3.5.48	 18/08/2020
+---------------------------
+	* bug fix for balanced column special case unsplittable half column
+
+RELEASE 3.5.47	  7/08/2020
+---------------------------
+	* try to limit table style cell ranges
+
+RELEASE 3.5.46	 22/07/2020
+---------------------------
+	* fix style-data mismatch in LinePlot found by Anshika Sahay
+
+RELEASE 3.5.45	 10/07/2020
+---------------------------
+	* fix some documentation bugs reported by Lele Gaifax
+	* fix error in BarChart axes joining reported by Faisal.Fareed
+
+RELEASE 3.5.44	 26/06/2020
+---------------------------
+	* ensure qr bar colour is passed (contrib by Lele Gaifax)
+	* fix img layout bug (reported by Lele Gaifax) 
+
+RELEASE 3.5.43	 03/06/2020
+---------------------------
+	* small change to improve strokeDashArray handling to allow [phase, [values]] and allow stroke-dashoffset
+	* Hatching class which inherits from shapes.Path
+	* add support for soft hyphens u'\xad'
+	* apply a pr from KENLYST @ bitbucket (gfe.py)
+
+RELEASE 3.5.42	 17/03/2020
+--------------------------
+	* fix bug in tables.py reported by Kamil Niski https://bitbucket.org/rptlab/reportlab/issues/182 & Adam Kalinsky
+
+RELEASE 3.5.41	 4/03/2020
+--------------------------
+	* fix python3 bug in DDIndenter.__getattr__
+
+RELEASE 3.5.40	28/02/2020
+--------------------------
+	* fix broken (by robin) simple bar lables found by Djan
+
+RELEASE 3.5.39	26/02/2020
+--------------------------
+	* allow selection of ttf subfonts by PS name
+	* revert to old style recursiveGetAttr
+	* raise error for problematic Canvas.setDash reported by Mike Carter from sitemorse
+
+RELEASE 3.5.38	14/02/2020
+--------------------------
+	* bug fix for normalDate monthnames; bump travis; version-->3.5.38
+
+RELEASE 3.5.37	07/02/2020
+--------------------------
+	* experimental support for 2d pie/doughnut shading
+
+RELEASE 3.5.36	28/01/2020
+--------------------------
+	* update travis version of multibuild contrib by Matthew Brett
+	* fixes to cope with python 3.9
+	* imrove Drawing formats handling and ensure asString can do svg
+
+RELEASE 3.5.35	22/01/2020
+--------------------------
+	* test fixes
+	* Label enhancement
+	* added isSubclassOf validator
+	* added CrossHair widget
+
+RELEASE 3.5.34	14/01/2020
+--------------------------
+	* attempted restriction of the reportlab.lib.color.toColor function
+
+RELEASE 3.5.33	30/10/2019
+--------------------------
+	* fix bug in Pie3d reported by Eldon Ziegler <eldonz@atlanticdb.com>
+	* fix bug in background splitting in repeatRows cases reported by David VanEe <david.vanee@convergent.ca>
+	* small improvements to CandleSticks
+	* created NotSet validator (use in  CandleStickProperties)
+	* update .travis.yml and .appeyor.yml hopefully to create 3.8 wheels
+
+RELEASE 3.5.32	24/10/2019
+--------------------------
+	* some chart efficiency changes
+	* use clock in fontFinder contributed by Matěj Cepl @ bitbucket
+	* improve recursive access and do some minor eval/exec fixes
+	* improve use of eval/exec
+
+RELEASE 3.5.31	15/10/2019
+--------------------------
+	* paraparser fix contributed by ravi prakash giri <raviprakashgiri@gmail.com>
+
+RELEASE 3.5.30	15/10/2019
+--------------------------
+	* better support for candlestick charts using smartGetItem
+
+RELEASE 3.5.29	14/10/2019
+--------------------------
+	* Support for candlestick charts and infilled pair plots
+
+RELEASE 3.5.28	02/10/2019
+--------------------------
+	* improve support for AES encryption
+
+RELEASE 3.5.27	01/10/2019
+--------------------------
+	* fix to justified para splits contributed by Niharika Singh <nsingh@shoobx.com>
+	* fix BalanceColumn width calculation
+	* preliminary support for AES encryption (contributed by https://github.com/talebi1)
+
+RELEASE 3.5.26	17/09/2019
+--------------------------
+	* micro changes to normalDate
+	* fix warnings about is not (detected in python 3.8b4)
+	* implement PR #59 bug fix contributed by Vytis Banaitis
+
+RELEASE 3.5.25	23/08/2019
+--------------------------
+	* add recursive ttf searching
+	* sync with rlextra
 	* fix Barchart axis crossing issue reported by Martin Jones (Zeidler)
 
 RELEASE 3.5.24	07/08/2019

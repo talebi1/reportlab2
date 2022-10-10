@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/tools/docco/yaml2pdf.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/tools/docco/yaml2pdf.py
 # yaml2pdf - turns stuff in Yet Another Markup Language
 # into PDF documents.  Very crude - it assumes a
 # doc template and stylesheet (hard coded for now)
@@ -19,13 +19,8 @@ import imp
 
 from . import yaml
 from .rltemplate import RLDocTemplate
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import *
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import *
-from reportlab.lib import colors
-from reportlab.lib.units import inch
-
 
 from .stylesheet import getStyleSheet
 

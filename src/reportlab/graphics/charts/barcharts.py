@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/barcharts.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/graphics/charts/barcharts.py
 __version__='3.3.0'
 __doc__="""This module defines a variety of Bar Chart components.
 
@@ -10,23 +10,23 @@ vertical versions.
 """
 
 import copy, functools
+from ast import literal_eval
 
 from reportlab.lib import colors
-from reportlab.lib.validators import isNumber, isNumberOrNone, isColor, isColorOrNone, isString,\
-            isListOfStrings, SequenceOf, isBoolean, isNoneOrShape, isStringOrNone,\
+from reportlab.lib.validators import isNumber, isNumberOrNone, isColorOrNone, isString,\
+            SequenceOf, isBoolean, isStringOrNone,\
             NoneOr, isListOfNumbersOrNone, EitherOr, OneOf, isInt
-from reportlab.lib.utils import flatten, isStr
+from reportlab.lib.utils import isStr, yieldNoneSplits
 from reportlab.graphics.widgets.markers import uSymbol2Symbol, isSymbol
-from reportlab.lib.formatters import Formatter
 from reportlab.lib.attrmap import AttrMap, AttrMapValue
 from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection, PropHolder
-from reportlab.graphics.shapes import Line, Rect, Group, Drawing, NotImplementedError
+from reportlab.graphics.widgetbase import TypedPropertyCollection, PropHolder, tpcGetItem
+from reportlab.graphics.shapes import Line, Rect, Group, Drawing, PolyLine
 from reportlab.graphics.charts.axes import XCategoryAxis, YValueAxis, YCategoryAxis, XValueAxis
-from reportlab.graphics.charts.textlabels import BarChartLabel, NA_Label, NoneOrInstanceOfNA_Label
+from reportlab.graphics.charts.textlabels import BarChartLabel, NoneOrInstanceOfNA_Label
 from reportlab.graphics.charts.areas import PlotArea
 from reportlab.graphics.charts.legends import _objStr
-from reportlab import xrange, cmp
+from reportlab import cmp
 
 class BarChartProperties(PropHolder):
     _attrMap = AttrMap(
@@ -38,6 +38,7 @@ class BarChartProperties(PropHolder):
         name = AttrMapValue(isString, desc='Text to be associated with a bar (eg seriesname)'),
         swatchMarker = AttrMapValue(NoneOr(isSymbol), desc="None or makeMarker('Diamond') ...",advancedUsage=1),
         minDimen = AttrMapValue(isNumberOrNone, desc='minimum width/height that will be drawn.'),
+        isLine = AttrMapValue(NoneOr(isBoolean), desc='if this bar should be drawn as a line'),
         )
 
     def __init__(self):
@@ -94,8 +95,29 @@ class BarChart(PlotArea):
         swatchMarker = getattr(style, 'swatchMarker', getattr(baseStyle, 'swatchMarker',None))
         if swatchMarker:
             return uSymbol2Symbol(swatchMarker,x+width/2.,y+height/2.,fillColor)
-        return Rect(x,y,width,height,strokeWidth=strokeWidth,strokeColor=strokeColor,
-                    strokeDashArray=strokeDashArray,fillColor=fillColor)
+        elif getattr(style,'isLine',False):
+            yh2 = y+height/2.
+            if hasattr(style, 'symbol'):
+                S = style.symbol
+            elif hasattr(baseStyle, 'symbol'):
+                S = baseStyle.symbol
+            else:
+                S = None
+            L = Line(x,yh2, x+width, yh2,
+                    strokeColor=style.strokeColor or style.fillColor,
+                    strokeWidth=style.strokeWidth,
+                    strokeDashArray = style.strokeDashArray)
+
+            if S: S = uSymbol2Symbol(S,x+width/2.,yh2,style.strokeColor or style.fillColor)
+            if S and L:
+                g = Group()
+                g.add(L)
+                g.add(S)
+                return g
+            return S or L
+        else:
+            return Rect(x,y,width,height,strokeWidth=strokeWidth,strokeColor=strokeColor,
+                        strokeDashArray=strokeDashArray,fillColor=fillColor)
 
     def getSeriesName(self,i,default=None):
         '''return series name i or default'''
@@ -175,17 +197,26 @@ class BarChart(PlotArea):
         bs = getattr(self,'seriesOrder',None)
         n = len(self.data)
         if not bs: 
-            R = [(ss,) for ss in xrange(n)]
+            R = [(ss,) for ss in range(n)]
         else:
+            bars = self.bars
             unseen = set(range(n))
+            lines = set()
             R = []
             for s in bs:
-                g = [ss for ss in s if 0<=ss<=n]
+                g = {ss for ss in s if 0<=ss<=n}
+                gl = {ss for ss in g if bars.checkAttr(ss,'isLine',False)}
+                if gl:
+                    g -= gl
+                    lines |= gl
+                    unseen -= gl
                 if g:
                     R.append(tuple(g))
-                    unseen -= set(g)
+                    unseen -= g
             if unseen:
                 R.extend((ss,) for ss in sorted(unseen))
+            if lines:
+                R.extend((ss,) for ss in sorted(lines))
         self._seriesOrder = R
 
     def _getConfigureData(self):
@@ -200,8 +231,8 @@ class BarChart(PlotArea):
                 pdata = max((len(d) for d in D))*[0]
                 ndata = pdata[:]
                 for d in D:
-                    for i in xrange(len(d)):
-                        v = d[i] or 0
+                    for i,v in enumerate(d):
+                        v = v or 0
                         if v<=-1e-6:
                             ndata[i] += v
                         else:
@@ -229,15 +260,9 @@ class BarChart(PlotArea):
         self._getConfigureData()
         vA.configure(self._configureData)
 
-        # if zero is in chart, put the other axis there, otherwise use low
+        # if zero is in chart, put the other axis there, otherwise use org
         crossesAt = vA.scale(0)
-        if not vA.forceZero:
-            eps = min(1,1.001*abs(length))
-            end = org+length
-            org, end = min(org,end)-eps, max(org,end)+eps
-            if crossesAt>eps or crossesAt<end:
-                crossesAt = org
-        return crossesAt
+        return crossesAt if vA.forceZero or (crossesAt>=org and crossesAt<=org+length) else org
 
     def _drawFinish(self):
         '''finalize the drawing of a barchart'''
@@ -281,7 +306,7 @@ class BarChart(PlotArea):
                 if k not in Z:
                     raise ValueError('Unknown zIndex variable %r in %r\nallowed variables are\n%s' % (k,Z,'\n'.join(['%s=%r'% (k,Z[k]) for k in sorted(Z.keys())])))
                 try:
-                    v = eval(v,{})  #only constants allowed
+                    v = literal_eval(v) #only constants allowed
                     assert isinstance(v,(float,int))
                 except:
                     raise ValueError('Bad zIndex value %r in clause %r of zIndex\nallowed variables are\n%s' % (v,z,zIndex,'\n'.join(['%s=%r'% (k,Z[k]) for k in sorted(Z.keys())])))
@@ -338,9 +363,12 @@ class BarChart(PlotArea):
         if clbo=='auto': clbo = flipXY and 'last' or 'first'
         clbo = clbo=='first'
         style = cA.style
+        bars = self.bars
+        lineCount = sum((int(bars.checkAttr(_,'isLine',False)) for _ in range(seriesCount)))
+        seriesMLineCount = seriesCount - lineCount
         if style=='mixed':
             ss = self._seriesOrder
-            barsPerGroup = len(ss)
+            barsPerGroup = len(ss) - lineCount
             wB = barsPerGroup*barWidth
             wS = (barsPerGroup-1)*barSpacing
             if barsPerGroup>1:
@@ -352,12 +380,12 @@ class BarChart(PlotArea):
             accumPos = accumNeg[:]
         elif style in ('parallel','parallel_3d'):
             barsPerGroup = 1
-            wB = seriesCount*barWidth
-            wS = (seriesCount-1)*barSpacing
+            wB = seriesMLineCount*barWidth
+            wS = (seriesMLineCount-1)*barSpacing
             bGapB = barWidth
             bGapS = barSpacing
         else:
-            barsPerGroup = seriesCount
+            barsPerGroup = seriesMLineCount
             accumNeg = rowLength*[0]
             accumPos = accumNeg[:]
             wB = barWidth
@@ -432,8 +460,7 @@ class BarChart(PlotArea):
         aBP = self._barPositions.append
         reversePlotOrder = self.reversePlotOrder
 
-        def _addBar(colNo,accx):
-            datum = row[colNo]
+        def _addBar(colNo, accx):
             # Ufff...
             if useAbsolute==7:
                 x = groupWidth*_cscale(colNo) + xVal + org
@@ -441,11 +468,12 @@ class BarChart(PlotArea):
                 (g, _) = cScale(colNo)
                 x = g + xVal
 
+            datum = row[colNo]
             if datum is None:
                 height = None
                 y = baseLine
             else:
-                if style not in ('parallel','parallel_3d'):
+                if style not in ('parallel','parallel_3d') and not isLine:
                     if datum<=-1e-6:
                         y = vScale(accumNeg[accx])
                         if y>baseLine: y = baseLine
@@ -465,23 +493,36 @@ class BarChart(PlotArea):
             barRow.append(flipXY and (y,x,height,width) or (x,y,width,height))
 
         if style!='mixed':
-            for rowNo in xrange(seriesCount):   #iterate over the separate series
+            lineSeen = 0
+            for rowNo, row in enumerate(data):  #iterate over the separate series
                 barRow = []
                 xVal = barsPerGroup - 1 - rowNo if reversePlotOrder else rowNo
                 xVal = offs + xVal*bGap
-                row = data[rowNo]
-                for colNo in xrange(rowLength): #iterate over categories
+                isLine = bars.checkAttr(rowNo, 'isLine', False)
+                if isLine:
+                    lineSeen += 1
+                    xVal = offs+(seriesMLineCount-1)*bGap*0.5
+                else:
+                    xVal -= lineSeen*bGap
+                for colNo in range(rowLength): #iterate over categories
                     _addBar(colNo,colNo)
                 aBP(barRow)
         else:
+            lineSeen = 0
             for sb,sg in enumerate(self._seriesOrder):  #the sub bar nos and series groups
                 style = 'parallel' if len(sg)<=1 else 'stacked'
-                xVal = barsPerGroup - 1 - sb if reversePlotOrder else sb
-                xVal = offs + xVal*bGap
                 for rowNo in sg:    #the individual series
+                    xVal = barsPerGroup - 1 - sb if reversePlotOrder else sb
+                    xVal = offs + xVal*bGap
                     barRow = []
                     row = data[rowNo]
-                    for colNo in xrange(rowLength): #iterate over categories
+                    isLine = bars.checkAttr(rowNo, 'isLine', False)
+                    if isLine:
+                        lineSeen += 1
+                        xVal = offs+(barsPerGroup-1)*bGap*0.5
+                    else:
+                        xVal -= lineSeen*bGap
+                    for colNo in range(rowLength): #iterate over categories
                         _addBar(colNo,colNo*barsPerGroup + sb)
                     aBP(barRow)
 
@@ -610,7 +651,6 @@ class BarChart(PlotArea):
         g.add(r)
 
     def _makeBars(self,g,lg):
-        lenData = len(self.data)
         bars = self.bars
         br = getattr(self,'barRecord',None)
         BP = self._barPositions
@@ -620,21 +660,23 @@ class BarChart(PlotArea):
         catNNA = {}
         if catNAL:
             CBL = []
-            rowNoL = lenData - 1
+            rowNoL = len(self.data) - 1
             #find all the categories that have at least one value
             for rowNo, row in enumerate(BP):
-                for colNo in xrange(len(row)):
-                    x, y, width, height = row[colNo]
+                for colNo, (x, y, width, height) in enumerate(row):
                     if None not in (width,height):
                         catNNA[colNo] = 1
 
+        lines = [].append
+        lineSyms = [].append
         for rowNo, row in enumerate(BP):
             styleCount = len(bars)
             styleIdx = rowNo % styleCount
             rowStyle = bars[styleIdx]
-            for colNo in xrange(len(row)):
+            isLine = bars.checkAttr(rowNo, 'isLine', False)
+            linePts = [].append
+            for colNo, (x,y,width,height) in enumerate(row):
                 style = (styleIdx,colNo) in bars and bars[(styleIdx,colNo)] or rowStyle
-                x, y, width, height = row[colNo]
                 if None in (width,height):
                     if not catNAL or colNo in catNNA:
                         self._addNABarLabel(lg,rowNo,colNo,x,y,width,height)
@@ -647,6 +689,7 @@ class BarChart(PlotArea):
                             y = (r0[1]+r1[1])/2.0
                             self._addNABarLabel(lg,rowNoL,colNo,x,y,0.0001,0.0001,na=catNAL)
                         CBL.append(colNo)
+                    if isLine: linePts(None)
                     continue
 
                 # Draw a rectangular symbol for each data item,
@@ -669,17 +712,44 @@ class BarChart(PlotArea):
                             height = min(-style.minDimen,height)
                         else:
                             height = max(style.minDimen,height)
-                if symbol:
+
+                if isLine:
+                    if not flipXY:
+                        yL = y + height
+                        xL = x + width*0.5
+                    else:
+                        xL = x + width
+                        yL = y + height*0.5
+                    linePts(xL)
+                    linePts(yL)
+                    if symbol:
+                        sym = uSymbol2Symbol(tpcGetItem(symbol,colNo),xL,yL,style.strokeColor or style.fillColor)
+                        if sym: lineSyms(sym)
+
+                elif symbol:
                     symbol.x = x
                     symbol.y = y
                     symbol.width = width
                     symbol.height = height
                     g.add(symbol)
+
                 elif abs(width)>1e-7 and abs(height)>=1e-7 and (style.fillColor is not None or style.strokeColor is not None):
                     self._makeBar(g,x,y,width,height,rowNo,style)
                     if br: br(g.contents[-1],label=self._getLabelText(rowNo,colNo),value=self.data[rowNo][colNo],rowNo=rowNo,colNo=colNo)
 
                 self._addBarLabel(lg,rowNo,colNo,x,y,width,height)
+
+            for linePts in yieldNoneSplits(linePts.__self__):
+                if linePts:
+                    lines(PolyLine(linePts,
+                            strokeColor=rowStyle.strokeColor or rowStyle.fillColor,
+                            strokeWidth=rowStyle.strokeWidth,
+                            strokeDashArray = rowStyle.strokeDashArray))
+
+        for pl in lines.__self__:
+            g.add(pl)
+        for sym in lineSyms.__self__:
+            g.add(sym)
 
     def _computeLabelPosition(self, text, label, rowNo, colNo, x, y, width, height):
         if label.visible:
@@ -754,8 +824,8 @@ class BarChart(PlotArea):
             lo = self.x
             hi = lo + self.width
             end = self.y+self.height
-            for i in xrange(lenData):
-                for x, y, w, h in BP[i]:
+            for bp in BP:
+                for x, y, w, h in bp:
                     v = x+w
                     z = y+h
                     aC((min(y,z),max(y,z), min(x,v) - lo, hi - max(x,v)))
@@ -763,8 +833,8 @@ class BarChart(PlotArea):
             lo = self.y
             hi = lo + self.height
             end = self.x+self.width
-            for i in xrange(lenData):
-                for x, y, w, h in BP[i]:
+            for bp in BP:
+                for x, y, w, h in bp:
                     v = y+h
                     z = x+w
                     aC((min(x,z), max(x,z), min(y,v) - lo, hi - max(y,v)))
@@ -813,15 +883,12 @@ class BarChart(PlotArea):
         cA.configure(self._configureData)
         self.calcBarPositions()
 
-        lenData = len(self.data)
         bars = self.bars
         R = [].append
         BP = self._barPositions
-        for rowNo in xrange(lenData):
-            row = BP[rowNo]
+        for rowNo, row in enumerate(BP):
             C = [].append
-            for colNo in xrange(len(row)):
-                x, y, width, height = row[colNo]
+            for colNo, (x, y, width, height) in enumerate(row):
                 if None in (width,height):
                     na = self.naLabel
                     if na and na.text:
@@ -2363,3 +2430,4 @@ class SampleH5c4(Drawing):
         bc.categoryAxis.categoryNames = ['Ying', 'Yang']
 
         self.add(bc,name='HBC')
+        bc._computeSimpleBarLabelPositions()

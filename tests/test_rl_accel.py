@@ -1,6 +1,5 @@
 __version__='3.3.0'
 __doc__='''basic tests.'''
-from reportlab import xrange, ascii
 from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, printLocation
 from reportlab.lib.utils import asBytes, isPyPy
 setOutDir(__name__)
@@ -30,12 +29,12 @@ def getrc(defns,depth=1):
     else:
         L = L.copy()
     G0 = G0.copy()
-    return ' '.join([str(getrefcount(eval(x,L,G0))-1) for x in defns.split()])
+    return [getrefcount(eval(x,L,G0))-1 for x in defns.split()]
 
 def checkrc(defns,rcv0):
     if isPyPy: return ''
     rcv1 = getrc(defns,2)
-    return ' '.join(["%s %s-->%s" % (x,v,w) for x,v,w in zip(defns.split(),rcv0.split(),rcv1.split()) if v!=w])
+    return ' '.join(["%s %s-->%s" % (x,v,w) for x,v,w in zip(defns.split(),rcv0,rcv1) if abs(v-w)>1])
 
 class RlAccelTestCase(unittest.TestCase):
 
@@ -62,7 +61,7 @@ class RlAccelTestCase(unittest.TestCase):
     def testAsciiBase85RoundTrip(self):
         plain = 'What is the average velocity of a sparrow?'
         eFuncs = getFuncs('asciiBase85Encode')
-        for i in xrange(256):
+        for i in range(256):
             for j,(dfunc, kind) in enumerate(getFuncs('asciiBase85Decode')):
                 efunc = eFuncs[j][0]
                 encoded = efunc(plain)
@@ -81,8 +80,15 @@ class RlAccelTestCase(unittest.TestCase):
 
     def testEscapePDF(self):
         for func, kind in getFuncs('escapePDF'):
-            assert func('(test)')=='\\(test\\)',"%s escapePDF('(test)')=='\\\\(test\\\\)' fails with value %s!" % (
-                    kind,ascii(func('(test)')))
+            for s, sx in (
+                    ('(test)', r'\(test\)'),
+                    (r'\(test)', r'\\\(test\)'),
+                    (b'\223\214\213\236',r'\223\214\213\236'),
+                    (u'\223\214\213\236',r'\223\214\213\236'),
+                    ):
+                r = func(s)
+                assert r==sx,"%s escapePDF('%s')=='%s' fails with value '%s'!" % (
+                    kind,s,sx,r)
 
     def testCalcChecksum(self):
         for func, kind in getFuncs('calcChecksum'):
@@ -113,15 +119,26 @@ class RlAccelTestCase(unittest.TestCase):
         for font,fontType in ((t1f,'T1'),(ttf,'TTF')):
             funcs = getFuncs('instanceStringWidth'+fontType)
             for i,kind in enumerate(('c','py')):
-                for j in (3,2,1,0): #we run several times to allow the refcounts to stabilize
-                    if j: rcv = getrc(defns)
+                for j in (9,8,7,6,5,4,3,2,1,0): #we run several times to allow the refcounts to stabilize
+                    if j==7: rcv = getrc(defns)
                     tfunc(font,testCp1252,fontSize,enc,funcs,i)
                     tfunc(font,ts,fontSize,senc,funcs,i)
                     tfunc(font,utext,fontSize,senc,funcs,i)
-                    if not j:
+                    if j==0:
                         rcc = checkrc(defns,rcv)
                         if rcc: F.append("%s %s refcount diffs (%s)" % (fontType,kind,rcc))
         assert not F,"instanceStringWidth failures\n\t%s" % '\n\t'.join(F)
+        isw = _c_funcs.get('instanceStringWidthTTF',None)
+        if isw:
+            saved = ttf.face.charWidths
+            del ttf.face.charWidths
+            try:
+                w = isw(ttf,'hello world',10)
+            except AttributeError as e:
+                se = str(e)
+                assert 'charWidths' in se,f"expected 'charWidths' not in\n{se!r}"
+            finally:
+                ttf.face.charWidths = saved
 
     def test_unicode2T1(self):
         from reportlab.pdfbase.pdfmetrics import getFont, _fonts
@@ -139,12 +156,24 @@ class RlAccelTestCase(unittest.TestCase):
         defns="t1fn t1f testCp1252 enc senc utext t1f.widths t1f.encName t1f.substitutionFonts _fonts"
         F = []
         for func,kind in FUNCS:
-            rcv = getrc(defns)
-            tfunc(t1f,testCp1252,func,kind)
-            tfunc(t1f,utext,func,kind)
-            rcc = checkrc(defns,rcv)
-            if rcc: F.append("%s refcount diffs (%s)" % (kind,rcc))
+            for j in (9,8,7,6,5,4,3,2,1,0): #we run several times to allow the refcounts to stabilize
+                if j==7: rcv = getrc(defns)
+                tfunc(t1f,testCp1252,func,kind)
+                tfunc(t1f,utext,func,kind)
+                if j==0:
+                    rcc = checkrc(defns,rcv)
+                    if rcc: F.append("%s refcount diffs (%s)" % (kind,rcc))
         assert not F,"test_unicode2T1 failures\n\t%s" % '\n\t'.join(F)
+        if FUNCS[0]:
+            t1fencName = t1f.encName
+            del t1f.encName
+            try:
+                FUNCS[0][0](utext,[t1f]+t1f.substitutionFonts)
+            except Exception as e:
+                se = str(e)
+                assert 'encName' in se,f"expected 'encName' not in\n{se!r}"
+            finally:
+                t1f.encName = t1fencName
 
     def test_sameFrag(self):
         class ABag:

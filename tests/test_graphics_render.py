@@ -6,12 +6,11 @@ Tests for renderers
 from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation
 setOutDir(__name__)
 import unittest, os, sys, glob
-from reportlab.lib.utils import isPy3
 try:
     from reportlab.graphics import _renderPM
 except:
     _renderPM = None
-from reportlab.graphics.shapes import _DrawingEditorMixin, Drawing, Group, Rect, Path, String, Polygon
+from reportlab.graphics.shapes import _DrawingEditorMixin, Drawing, Group, Rect, Path, String, Polygon, Hatching, Line, definePath
 from reportlab.lib.colors import Color, CMYKColor, PCMYKColor, toColor
 
 class FillModeDrawing(_DrawingEditorMixin,Drawing):
@@ -109,6 +108,28 @@ class AutoCloseDrawing(_DrawingEditorMixin,Drawing):
         v1.transform = (1,0,0,-1,0,100)
         v1.add(Path(points=[10,10,10,90,20,90,20,10,30,10,30,90,40,90,40,10,50,10,50,90,60,90,60,10,70,10,70,90,80,90,80,10],operators=[0,1,1,1,3,0,1,1,1,0,1,1,1,3,0,1,1,1],isClipPath=0,autoclose=autoclose,fillMode=1,strokeDashArray=None,strokeWidth=2,strokeMiterLimit=0,strokeOpacity=None,strokeLineJoin=0,fillOpacity=1,strokeColor=Color(1,0,0,1),strokeLineCap=0,fillColor=Color(0,0,1,1)))
 
+class HatchDrawing(_DrawingEditorMixin,Drawing):
+    def __init__(self,width=400,height=200,*args,**kw):
+        Drawing.__init__(self,width,height,*args,**kw)
+        #for x1,y1, x2,y2 in diagonalLines(45, 5, [Polygon([5,5,  5,100, 99,105, 105,5])]): self._add(self,Line(x1,y1,x2,y2,strokeWidth=1,strokeColor=toColor('black')),name=None,validate=None,desc=None)
+        self._add(self,Hatching(spacing=(30,30,30),angles=(45,0,-45),xyLists=[5,5,  5,100, 99,105, 105,5],strokeWidth=0.1,strokeColor=toColor('red'), strokeDashArray=None),name='hatching',validate=None,desc=None)
+        self.width        = 110
+        self.height       = 110
+        self._add(self,Line(0,105,110,105,strokeWidth=0.5,strokeColor=toColor('blue')),name=None,validate=None,desc=None)
+
+class TextRenderModeDrawing(_DrawingEditorMixin,Drawing):
+    def __init__(self,width=400,height=200,*args,**kw):
+        Drawing.__init__(self,width,height,*args,**kw)
+        smallFontSize = float(os.environ.get('smallFontSize','40'))
+        self._add(self,String(65,10,'text0',fontSize=80,fontName='Helvetica',fillColor=toColor('blue'),strokeColor=toColor('red'),strokeWidth=1.5,textRenderMode=0),name='S0',validate=None,desc=None)
+        self._add(self,String(405,20,'text1',fontSize=80,fontName='Helvetica',fillColor=toColor('blue'),strokeColor=toColor('red'),strokeWidth=1.5,textRenderMode=1, textAnchor='end'),name='S1',validate=None,desc=None)
+        self._add(self,String(190,90,'text2',fontSize=80,fontName='Helvetica',fillColor=toColor('blue'),strokeColor=toColor('red'),strokeWidth=1.5,textRenderMode=2),name='S2',validate=None,desc=None)
+        self._add(self,String(240,150,'text3',fontSize=smallFontSize,fontName='Helvetica',fillColor=toColor('green'),strokeColor=toColor('magenta'),strokeWidth=0.5,textRenderMode=2),name='S3',validate=None,desc=None)
+        self._add(self,String(140,150,'text4',fontSize=smallFontSize,fontName='Helvetica',fillColor=toColor('green'),strokeColor=toColor('magenta'),strokeWidth=0.5,textRenderMode=1),name='S4',validate=None,desc=None)
+        self._add(self,String(70,120,'text5',fontSize=smallFontSize,fontName='Helvetica',fillColor=toColor('green'),strokeColor=toColor('magenta'),strokeWidth=0.5,textRenderMode=0),name='S5',validate=None,desc=None)
+        self._add(self,Line(40,40,70,70,strokeWidth=0.5,strokeColor=toColor('green')),name='L0',validate=None,desc=None)
+        self._add(self,definePath([('moveTo',80,80),('lineTo',110,110),('lineTo',80,110),'closePath'],fillColor=None,strokeWidth=2,strokeColor=toColor('yellow')),name='P0',validate=None,desc=None)
+
 class RenderTestCase(unittest.TestCase):
     "Test renderPS classes."
 
@@ -138,12 +159,14 @@ class RenderTestCase(unittest.TestCase):
         assert test(self.outDir) is None
 
     def test4(self):
-        formats = ('pdf svg ps' + (' png' if _renderPM else '')).split()
+        formats = ('pdf svg ps py' + (' png' if _renderPM else '')).split()
         for fm in (0,1):
             FillModeDrawing(fillMode=fm).save(formats=formats,outDir=self.outDir,fnRoot='fillmode-'+('non-zero' if fm else 'even-odd'))
         _410Drawing().save(formats=formats,outDir=self.outDir,fnRoot='410')
         for ac in (None,'pdf','svg'):
             AutoCloseDrawing(autoclose=ac).save(formats=formats,outDir=self.outDir,fnRoot='autoclose-'+(ac or 'none'))
+        HatchDrawing().save(formats=formats,outDir=self.outDir,fnRoot='hatch')
+        TextRenderModeDrawing().save(formats=formats,outDir=self.outDir,fnRoot='textmode')
 
     @unittest.skipIf(not _renderPM,'no _renderPM')
     def testSVGLibIssues(self):

@@ -1,33 +1,24 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/paraparser.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/paraparser.py
 __all__ = ('ParaFrag', 'ParaParser')
 __version__='3.5.20'
 __doc__='''The parser used to process markup within paragraphs'''
-import string
 import re
 import sys
-import os
 import copy
-import base64
-from pprint import pprint as pp
-from reportlab import ascii
 import unicodedata
 import reportlab.lib.sequencer
 
 from reportlab.lib.abag import ABag
-from reportlab.lib.utils import ImageReader, isPy3, annotateException, encode_label, asUnicode, asBytes, uniChr, isStr, unicodeT
-from reportlab.lib.colors import toColor, white, black, red, Color
+from reportlab.lib.utils import ImageReader, annotateException, encode_label, asUnicode
+from reportlab.lib.colors import toColor, black
 from reportlab.lib.fonts import tt2ps, ps2tt
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
 from reportlab.lib.units import inch,mm,cm,pica
 from reportlab.rl_config import platypus_link_underline
-if isPy3:
-    from html.parser import HTMLParser
-    from html.entities import name2codepoint
-else:
-    from HTMLParser import HTMLParser
-    from htmlentitydefs import name2codepoint
+from html.parser import HTMLParser
+from html.entities import name2codepoint
 
 _re_para = re.compile(r'^\s*<\s*para(?:\s+|>|/>)')
 
@@ -51,7 +42,7 @@ def _convnum(s, unit=1, allowRelative=True):
 
 def _num(s, unit=1, allowRelative=True,
         _unit_map = {'i':inch,'in':inch,'pt':1,'cm':cm,'mm':mm,'pica':pica },
-        _re_unit = re.compile('^\s*(.*)(i|in|cm|mm|pt|pica)\s*$'),
+        _re_unit = re.compile(r'^\s*(.*)(i|in|cm|mm|pt|pica)\s*$'),
         ):
     """Convert a string like '10cm' to an int or float (in points).
        The default unit is point, but optionally you can use other
@@ -205,7 +196,7 @@ def _textTransformConv(s):
     s = s.lower().strip()
     if not s: return None
     if s not in ('uppercase','lowercase','capitalize','none'):
-        raise ValueError('cannot convert wordWrap=%r' % s)
+        raise ValueError('cannot convert textTransform=%r' % s)
     return s
 
 _paraAttrMap = {'font': ('fontName', None),
@@ -238,7 +229,7 @@ _paraAttrMap = {'font': ('fontName', None),
                 'alloworphans': ('allowOrphans',_bool),
                 'splitlongwords': ('splitLongWords',_bool),
                 'borderwidth': ('borderWidth',_num),
-                'borderpadding': ('borderpadding',_num),
+                'borderpadding': ('borderPadding',_num),
                 'bordercolor': ('borderColor',toColor),
                 'borderradius': ('borderRadius',_num),
                 'texttransform':('textTransform',_textTransformConv),
@@ -2494,14 +2485,13 @@ greeks = {
     'zwnj': u'\u200c',                            #ZERO WIDTH NON-JOINER
     }
 
-known_entities = dict([(k,uniChr(v)) for k,v in name2codepoint.items()])
+known_entities = dict([(k,chr(v)) for k,v in name2codepoint.items()])
 for k in greeks:
     if k not in known_entities:
         known_entities[k] = greeks[k]
-f = isPy3 and asBytes or asUnicode
 #K = list(known_entities.keys())
 #for k in K:
-#   known_entities[f(k)] = known_entities[k]
+#   known_entities[asBytes(k)] = known_entities[k]
 #del k, f, K
 
 #------------------------------------------------------------------------
@@ -2527,10 +2517,7 @@ def _greekConvert(data):
             if not v:
                 u = '\0'
             else:
-                if isPy3:
-                    u = chr(v)
-                else:
-                    u = unichr(v).encode('utf8')
+                u = chr(v)
             _greek2Utf8[chr(k)] = u
     return ''.join(map(_greek2Utf8.__getitem__,data))
 
@@ -2634,7 +2621,7 @@ class ParaParser(HTMLParser):
         frag.us_lines = frag.us_lines + [(
                     self.nlines,
                     k,
-                    getattr(frag,k+'Color',None),
+                    getattr(frag,k+'Color',self._defaultLineColors[k]),
                     getattr(frag,k+'Width',self._defaultLineWidths[k]),
                     getattr(frag,k+'Offset',self._defaultLineOffsets[k]),
                     frag.rise,
@@ -2781,7 +2768,7 @@ class ParaParser(HTMLParser):
         except ValueError:
             self.unknown_charref(name)
             return
-        self.handle_data(uniChr(n))   #.encode('utf8'))
+        self.handle_data(chr(n))   #.encode('utf8'))
 
     def syntax_error(self,lineno,message):
         self._syntax_error(message)
@@ -2809,8 +2796,12 @@ class ParaParser(HTMLParser):
                 v = '\0'
         elif 'code' in attr:
             try:
-                v = int(eval(attr['code']))
-                v = chr(v) if isPy3 else unichr(v)
+                v = attr['code'].lower()
+                if v.startswith('0x'):
+                    v = int(v,16)
+                else:
+                    v = int(v,0)    #treat as a python literal would be
+                v = chr(v)
             except:
                 self._syntax_error('<unichar/> invalid code attribute %s' % ascii(attr['code']))
                 v = '\0'
@@ -2877,19 +2868,26 @@ class ParaParser(HTMLParser):
         frag.rise = 0
         frag.greek = 0
         frag.link = []
-        if bullet:
-            frag.fontName, frag.bold, frag.italic = ps2tt(style.bulletFontName)
-            frag.fontSize = style.bulletFontSize
-            frag.textColor = hasattr(style,'bulletColor') and style.bulletColor or style.textColor
-        else:
-            frag.fontName, frag.bold, frag.italic = ps2tt(style.fontName)
-            frag.fontSize = style.fontSize
-            frag.textColor = style.textColor
+        try:
+            if bullet:
+                frag.fontName, frag.bold, frag.italic = ps2tt(style.bulletFontName)
+                frag.fontSize = style.bulletFontSize
+                frag.textColor = hasattr(style,'bulletColor') and style.bulletColor or style.textColor
+            else:
+                frag.fontName, frag.bold, frag.italic = ps2tt(style.fontName)
+                frag.fontSize = style.fontSize
+                frag.textColor = style.textColor
+        except:
+            annotateException('error with style name=%s'%style.name)
         frag.us_lines = []
         self.nlinks = self.nlines = 0
         self._defaultLineWidths = dict(
                                     underline = getattr(style,'underlineWidth',''),
                                     strike = getattr(style,'strikeWidth',''),
+                                    )
+        self._defaultLineColors = dict(
+                                    underline = getattr(style,'underlineColor',''),
+                                    strike = getattr(style,'strikeColor',''),
                                     )
         self._defaultLineOffsets = dict(
                                     underline = getattr(style,'underlineOffset',''),
@@ -3085,8 +3083,7 @@ class ParaParser(HTMLParser):
     #----------------------------------------------------------------
 
     def __init__(self,verbose=0, caseSensitive=0, ignoreUnknownTags=1, crashOnError=True):
-        HTMLParser.__init__(self,
-            **(dict(convert_charrefs=False) if sys.version_info>=(3,4) else {}))
+        HTMLParser.__init__(self, **(dict(convert_charrefs=False)))
         self.verbose = verbose
         #HTMLParser is case insenstive anyway, but the rml interface still needs this
         #all start/end_ methods should have a lower case version for HMTMParser

@@ -299,13 +299,15 @@ class TableTestCase(unittest.TestCase):
         """, styNormal))
 
 
-        data = self.getDataBlock()
-        data[5][0] = Paragraph("Let's <b>really mess things up</b> with a <i>paragraph</i>, whose height is a function of the width you give it.",styNormal)
-        t = Table(data,
-                    colWidths=(None,72,36,36,36,36,56),
-                    rowHeights=None,
-                    style=sty)
-        lst.append(t)
+        def messedUpTable():
+            data = self.getDataBlock()
+            data[5][0] = Paragraph("Let's <b>really mess things up</b> with a <i>paragraph</i>, whose height is a function of the width you give it.",styNormal)
+            t = Table(data,
+                        colWidths=(None,72,36,36,36,36,56),
+                        rowHeights=None,
+                        style=sty)
+            return t
+        lst.append(messedUpTable())
 
 
         lst.append(Paragraph("""This one demonstrates that our current algorithm
@@ -402,6 +404,336 @@ class TableTestCase(unittest.TestCase):
 
         lst.append(Paragraph("""This code does not yet handle spans well.""",
         styNormal))
+
+        lst.append(PageBreak())
+
+        lst.append(Paragraph("""Oversized cells""", styleSheet['Heading1']))
+
+        lst.append(Paragraph("""In some cases cells with flowables can end up
+        being larger than a page. In that case, we need to split the page.
+        The splitInRow attribute allows that, it's by default 0.""",
+        styNormal))
+
+        lst.append(Paragraph("""Here is a table, with splitByRow=1 and
+        splitInRow=0. It splits between the two rows.""",
+        styNormal))
+
+        ministy = TableStyle([
+            ('GRID', (0,0), (-1,-1), 1.0, colors.black),
+            ('VALIGN', (0,1), (1,1), 'BOTTOM'),
+            ('VALIGN', (1,1), (2,1), 'MIDDLE'),
+            ('VALIGN', (2,1), (3,1), 'TOP'),
+            ('VALIGN', (3,1), (4,1), 'BOTTOM'),
+            ('VALIGN', (4,1), (5,1), 'MIDDLE'),
+            ('VALIGN', (5,1), (6,1), 'TOP'),
+            ])
+        cell1 = [Paragraph(
+            """This is a very tall cell to make a tall row for splitting.""",
+            styNormal)]
+        cell2 = [Paragraph("This cell has two flowables.", styNormal),
+            Paragraph("And valign=MIDDLE.", styNormal)]
+        cell3 = [Paragraph("Paragraph with valign=TOP", styNormal)]
+
+        tableData = [
+            ['Row 1', 'Two rows:\nSo there', 'is a', 'place', 'to split', 'the table'],
+            [cell1, cell2, cell3, 'valign=BOTTOM', 'valign=MIDDLE', 'valign=TOP']
+        ]
+
+        # This is the table with splitByRow, which splits between row 1 & 2:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=1,
+                  splitInRow=0)
+        parts = t.split(451, 55)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(Paragraph("""Here is the same table, with splitByRow=0 and
+        splitInRow=1. It splits inside a row.""",
+        styNormal))
+
+        # This is the table with splitInRow, which splits in row 2:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=0,
+                  splitInRow=1)
+
+        parts = t.split(451, 57)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(Paragraph("""Here is the same table, with splitByRow=1 and
+        splitInRow=1. It splits between the rows, if possible.""",
+        styNormal))
+
+        # This is the table with both splits, which splits in row 2:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=1,
+                  splitInRow=1)
+
+        parts = t.split(451, 57)
+        lst.append(parts[0])
+        #lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(Paragraph("""But if we constrict the space to less than the first row,
+        it splits that row.""",
+        styNormal))
+
+        # This is the table with both splits and no space, which splits in row 1:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=1,
+                  splitInRow=1)
+
+        parts = t.split(451, 15)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        # Split it at a point in row 2, where the split fails
+        lst.append(Paragraph("""When splitByRow is 0 and splitInRow is 1, we should
+        still allow fallback to splitting between rows""",
+        styNormal))
+
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=0,
+                  splitInRow=1)
+        parts = t.split(451, 55)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(PageBreak())
+        lst.append(Paragraph("""Similar table, with splitByRow=1 and splitInRow=0. String version.""",styNormal))
+        cell1 = "This is a\nvery tall\ncell to\nmake a\ntall row\nfor split-\nting."
+        cell2 = "This cell has\ntwo\nstrings.\n\nAnd valign=\nMIDDLE."
+        cell3 = "String\nwith\nvalign=TOP"
+
+        tableData = [
+            ['Row 1', 'Two rows:\nSo there', 'is a', 'place', 'to split', 'the table'],
+            [cell1, cell2, cell3, 'valign=BOTTOM', 'valign=MIDDLE', 'valign=TOP']
+        ]
+
+        # This is the table with splitByRow, which splits between row 1 & 2:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=1,
+                  splitInRow=0)
+        parts = t.split(451, 55)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(Paragraph("""Here is the same table, with splitByRow=0 and
+        splitInRow=1. It splits inside a row.""",
+        styNormal))
+
+        # This is the table with splitInRow, which splits in row 2:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=0,
+                  splitInRow=1)
+
+        parts = t.split(451, 57)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(Paragraph("""Here is the same table, with splitByRow=1 and
+        splitInRow=1. It splits between the rows, if possible.""",
+        styNormal))
+
+        # This is the table with both splits, which splits in row 2:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=1,
+                  splitInRow=1)
+
+        parts = t.split(451, 57)
+        lst.append(parts[0])
+        #lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        lst.append(Paragraph("""But if we constrict the space to less than the first row,
+        it splits that row.""",
+        styNormal))
+
+        # This is the table with both splits and no space, which splits in row 1:
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=1,
+                  splitInRow=1)
+
+        parts = t.split(451, 15)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        # Split it at a point in row 2, where the split fails
+        lst.append(Paragraph("""When splitByRow is 0 and splitInRow is 1, we should
+        still allow fallback to splitting between rows""",
+        styNormal))
+
+        t = Table(tableData,
+                  colWidths=(50, 70, 70, 90, 90, 70),
+                  rowHeights=None,
+                  style=ministy,
+                  splitByRow=0,
+                  splitInRow=1)
+        parts = t.split(451, 55)
+        lst.append(parts[0])
+        lst.append(Paragraph("", styNormal))
+        lst.append(parts[1])
+
+        def lennartExample(splitByRow=0,splitInRow=1,split=0):
+            #special case examples of inRowSplit
+            class IndicatorTable(Table):
+                def draw(self):
+                    Table.draw(self)
+                    c = self.canv
+                    x = self._width
+                    y = self._height - split
+                    c.setStrokeColor(colors.toColor('red'))
+                    c.setLineWidth(0.5)
+                    c.setDash([2,2])
+                    c.line(0,y,x+13,y)
+
+            storyAdd = lst.append
+            storyAdd(PageBreak())
+            styleSheet = getSampleStyleSheet()
+            btStyle = styleSheet['BodyText']
+            def makeTable(klass=Table):
+                xkwd = {}
+                data = [
+                    ['R0C0\nR1C0\nR2C0', 'R0C1', 'R0C2', 'R0C3', 'R0C4\nR1C4', 'R0C5'],
+                    ['', 'R1C1', 'R1C2', 'R1C3', '', 'R1C5\nR2C5\nR3C5'],
+                    ['', 'R2C1', 'R2C2', 'R2C3', 'R2C4', ''],
+                    ['R3C0', 'R3C1', 'R3C2', 'R3C3 R3C4\nR4C3 R4C4', '', ''],
+                    ['R4C0', 'R4C1', 'R4C2', '', '', 'R4C5'],
+                ]
+
+                sty = [
+                        ('GRID',(0,0),(-1,-1),0.5,colors.grey),
+                        ('GRID',(1,1),(-2,-2),1,colors.green),
+                        ('BOX',(0,0),(-1,-1),3,colors.black),
+                        ('BOX',(0,0),(1,-1),2,colors.red),
+                        ('LINEABOVE',(1,2),(-2,2),1,colors.blue),
+                        ('LINEBEFORE',(2,1),(2,-2),1,colors.pink),
+                        ('BACKGROUND', (0, 0), (0, 0), colors.pink),
+                        ('BACKGROUND', (1, 1), (1, 2), colors.lavender),
+                        ('BACKGROUND', (2, 3), (2, 4), colors.orange),
+                        ('BACKGROUND',(5,1),(5,3),colors.greenyellow),
+                        ('BACKGROUND',(5,4),(5,4),colors.darkviolet),
+                        ('TEXTCOLOR',(0,0),(-1,0),colors.brown),
+                        ('TEXTCOLOR',(1,1),(-2,-1),colors.green),
+                        ('TEXTCOLOR',(5,1),(5,3),colors.magenta),
+                        ('TEXTCOLOR',(5,4),(5,4),colors.white),
+                        ('SPAN',(0,0), (0, 2)),
+                        ('SPAN',(2,0), (2, 1)),
+                        ('SPAN',(3,3), (4, 4)),
+                        ('SPAN',(4,0), (4, 1)),
+                        ('SPAN',(5,1), (5, 3)),
+                        ]
+                xkwd['colWidths'] = [40]*6
+                return klass(data,
+                            style=sty,
+                            splitInRow=splitInRow,
+                            splitByRow=splitByRow,
+                            **xkwd,
+                            )
+            storyAdd(Paragraph("Illustrating splits: nosplit", btStyle))
+            storyAdd(makeTable(klass=IndicatorTable))
+            storyAdd(Spacer(0,6))
+            def addSplitTable(size=30):
+                t = makeTable()
+                S = t.split(4*72,size)
+                if not S:
+                    storyAdd(Paragraph(f"<span color=red>Illustrating splits failed</span>: split(4in,{size}) {splitByRow=} {splitInRow=}", btStyle))
+                    storyAdd(Spacer(0,6))
+                    #print('!!!!! Failed')
+                else:
+                    #print('##### OK')
+                    storyAdd(Paragraph(f"Illustrating splits: split(4in,{size}) {splitByRow=} {splitInRow=}", btStyle))
+                    storyAdd(Spacer(0,6))
+                    for s in S:
+                        storyAdd(s)
+                        storyAdd(Spacer(0,20))
+            addSplitTable(split)
+
+        for split in (30,40,50,60):
+            lennartExample(split=split)
+
+        plainlg = (
+            ("ALIGN", (0,0), (-1,-1), "LEFT"),
+            ("FONTNAME", (0,0), (-1,-1), "Helvetica"),
+            ("FONTSIZE", (0,0), (-1,-1), 10),
+            ("VALIGN", (1,2), (1,3), "MIDDLE"),
+            ("VALIGN", (2,2), (2,3), "TOP"),
+            ("ALIGN", (1,1), (1,1), "CENTER"),
+            ("ALIGN", (1,4), (1,4), "CENTER"),
+            ('GRID', (0,0), (-1,-1), 1, colors.black),
+            ('OUTLINE', (0,0), (-1,-1), 2, colors.black),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+            ("TOPPADDING", (0,0), (-1,-1), 0),
+            ("LEFTPADDING", (0,0), (-1,-1), 0),
+            ("RIGHTPADDING", (0,0), (-1,-1), 0),
+            ("BACKGROUND", (1,1), (1,1), ("HORIZONTAL", colors.green, colors.yellow)),
+            ("BACKGROUND", (0,2), (1,2), ("VERTICAL", colors.red, '#008000')),
+            ("BACKGROUND", (0,3), (1,3), ("VERTICAL2", colors.blue, colors.yellow)),
+            ("BACKGROUND", (1,4), (1,4), ("HORIZONTAL2", colors.green, colors.yellow)),
+            ("BACKGROUND", (2,2), (2,2), ("LINEARGRADIENT", (0,0),(1,1), True, (colors.green, colors.yellow, colors.red), (0.25,0.5,0.75))),
+            ("BACKGROUND", (2,3), (2,3), ("LINEARGRADIENT", (0,1),(1,0), True, (colors.green, colors.yellow, colors.red), (0.25,0.5,0.75))),
+            ("BACKGROUND", (1,5), (1,5), ("LINEARGRADIENT", (0,0),(1,0), True, (colors.pink, colors.lightgreen, colors.lightblue), (0.25,0.5,0.75))),
+            ("BACKGROUND", (0,6), (1,6), ("LINEARGRADIENT", (0,0),(0,1), True, (colors.pink, colors.lightgreen, colors.lightblue), (0.25,0.5,0.75))),
+            ("BACKGROUND", (2,6), (2,6), ("LINEARGRADIENT", (1,0.2),(0,0.8), True, (colors.red, colors.yellow, colors.green, colors.lightblue), (0.2,0.4,0.6,0.8))),
+            ("BACKGROUND", (0,7), (0,7), ("RADIALGRADIENT", (0.5,0.5),(1,'width'), True, (colors.red, colors.yellow, colors.green, colors.lightblue), (0.2,0.4,0.6,0.8))),
+            ("BACKGROUND", (1,7), (1,7), ("RADIALGRADIENT", (0.5,0.5),(1,'height'), True, (colors.red, colors.yellow, colors.green, colors.lightblue), (0.2,0.4,0.6,0.8))),
+            ("BACKGROUND", (2,7), (2,7), ("RADIALGRADIENT", (0.6,0.4),(1,'max'), True, (colors.red, colors.yellow, colors.green, colors.lightblue), (0.2,0.4,0.6,0.8))),
+            ("BACKGROUND", (0,8), (1,8), ("LINEARGRADIENT", (0,1),(0,0), True, (colors.blue, colors.yellow, colors.blue), (0.25,0.5,0.75))),
+            ("BACKGROUND", (2,8), (2,8), ("LINEARGRADIENT", (0,1),(1,0), True, (colors.green, colors.yellow, colors.green), (0.25,0.5,0.75))),
+            )
+        datalg = [
+            ["00","01","02"],
+            ["10","11 this is a long string","12"],
+            ["20\nthis is the\nend\nmy friend","21\nthe bells of hell\ngo ting-aling-aling",
+                "22\ndespair all who\nenter here"],
+            ["30\nthis is the\nend\nmy friend","31\nthe bells of hell\ngo ting-aling-aling",
+                "32\ndespair all who\nenter here"],
+            ["40","41 this is a long string","42"],
+            ["50","51 this is a long string","52"],
+            ["60\nthis is the\nend\nmy friend","61\nthe bells of hell\ngo ting-aling-aling",
+                "62\ndespair all who\nenter here"],
+            ["70\nthis is the\nend\nmy friend","71\nthe bells of hell\ngo ting-aling-aling",
+                "72\ndespair all who\nenter here"],
+            ["80\nthis is the\nend\nmy friend","81\nthe bells of hell\ngo ting-aling-aling",
+                "82\ndespair all who\nenter here"],
+            ]
+        lst.append(PageBreak())
+        lst.append(Paragraph("Table with gradient backgrounds", styleSheet['Heading1']))
+        lst.append(Table(datalg,style=plainlg))
 
         SimpleDocTemplate(outputfile('test_table_layout.pdf'), showBoundary=1).build(lst)
 

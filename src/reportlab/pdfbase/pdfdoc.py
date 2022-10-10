@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/pdfbase/pdfdoc.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/pdfbase/pdfdoc.py
 __version__='3.4.1'
 __doc__="""
 The module pdfdoc.py handles the 'outer structure' of PDF documents, ensuring that
@@ -14,25 +14,16 @@ The classes within this generally mirror structures in the PDF file
 and are not part of any public interface.  Instead, canvas and font
 classes are made available elsewhere for users to manipulate.
 """
-import types, binascii, codecs, time
+import binascii, codecs, zlib
 from collections import OrderedDict
 from reportlab.pdfbase import pdfutils
-from reportlab import rl_config, ascii
-from reportlab.lib.utils import import_zlib, open_for_read, makeFileName, isSeq, isBytes, isUnicode, _digester, isStr, bytestr, isPy3, annotateException, TimeStamp
+from reportlab import rl_config
+from reportlab.lib.utils import open_for_read, makeFileName, isSeq, isBytes, isUnicode, _digester, isStr, bytestr, annotateException, TimeStamp
 from reportlab.lib.rl_accel import escapePDF, fp_str, asciiBase85Encode, asciiBase85Decode
 from reportlab.pdfbase import pdfmetrics
 from hashlib import md5
 
-from sys import platform
-from sys import version_info
 from sys import stderr
-
-if platform[:4] == 'java' and version_info[:2] == (2, 1):
-    # workaround for list()-bug in Jython 2.1 (should be fixed in 2.2)
-    def list(sequence):
-        def f(x):
-            return x
-        return list(map(f, sequence))
 
 class PDFError(Exception):
     pass
@@ -59,12 +50,8 @@ PDF_SUPPORT_VERSION = dict(     #map keyword to min version that supports it
     transparency = (1, 4),
     )
 
-if isPy3:
-    def pdfdocEnc(x):
-        return x.encode('extpdfdoc') if isinstance(x,str) else x
-else:
-    def pdfdocEnc(x):
-        return x.encode('extpdfdoc') if isinstance(x,unicode) else x
+def pdfdocEnc(x):
+    return x.encode('extpdfdoc') if isinstance(x,str) else x
 
 def format(element, document, toplevel=0):
     """Indirection step for formatting.
@@ -113,7 +100,7 @@ class NoEncryption:
         # the representation of self in file if any (should be None or PDFDict)
         return None
 
-class PDFObject(object):
+class PDFObject:
     pass
 
 class DummyDoc(PDFObject):
@@ -131,6 +118,7 @@ class PDFDocument(PDFObject):
                  invariant=rl_config.invariant,
                  filename=None,
                  pdfVersion=PDF_VERSION_DEFAULT,
+                 lang=None,
                  ):
         self._ID = None
         self.objectcounter = 0
@@ -163,6 +151,9 @@ class PDFDocument(PDFObject):
         cat = self.Catalog = self._catalog = PDFCatalog()
         pages = self.Pages = PDFPages()
         cat.Pages = pages
+        lang = lang if lang else rl_config.documentLang
+        if lang:
+            cat.Lang = PDFString(lang)
         self.outline = self.Outlines = cat.Outlines = PDFOutlines0() if dummyoutline else PDFOutlines()
         self.info = PDFInfo()
         #self.Reference(self.Catalog)
@@ -205,13 +196,19 @@ class PDFDocument(PDFObject):
         if hasattr(getattr(filename, "write",None),'__call__'):
             myfile = 0
             f = filename
-            filename = getattr(f,'name','')
-            if isinstance(filename,int): filename = '<os fd:%d>'% filename
+            filename = getattr(f,'name',None)
+            if isinstance(filename,int):
+                filename = '<os fd:%d>'% filename
+            elif not isStr(filename): #try to fix bug reported by Robert Schroll <rschroll at gmail.com> 
+                filename = '<%s@0X%8.8X>' % (f.__class__.__name__,id(f))
             filename = makeFileName(filename)
-        else :
+        elif isStr(filename):
             myfile = 1
             filename = makeFileName(filename)
             f = open(filename, "wb")
+        else:
+            raise TypeError('Cannot use %s as a filename or file' % repr(filename)) 
+
         data = self.GetPDFData(canvas)
         if isUnicode(data):
             data = data.encode('latin1')
@@ -574,12 +571,14 @@ def _checkPdfdoc(utext):
         return 0
 
 class PDFString(PDFObject):
+    unicodeEncValid = False
     def __init__(self, s, escape=1, enc='auto'):
         '''s can be unicode/utf8 or a PDFString
         if escape is true then the output will be passed through escape
-        if enc is raw then the string will be left alone
+        if enc is raw then bytes will be left alone
         if enc is auto we'll try and automatically adapt to utf_16_be/utf_16_le if the
         effective string is not entirely in pdfdoc
+        if self.unicodeEncValid unicode will use the specifed encoding
         '''
         if isinstance(s,PDFString):
             self.s = s.s
@@ -617,6 +616,8 @@ class PDFString(PDFObject):
                     s = s.encode('pdfdoc')
                 else:
                     s = codecs.BOM_UTF16_BE+s.encode('utf_16_be')
+            elif self.unicodeEncValid:
+                s = s.encode(self.enc)
             else:
                 s = codecs.BOM_UTF16_BE+s.encode('utf_16_be')
         else:
@@ -738,6 +739,7 @@ class ViewerPreferencesPDFDictionary(CheckedPDFDictionary):
                 PrintArea=checkPDFNames(*'MediaBox CropBox BleedBox TrimBox ArtBox'.split()),
                 PrintClip=checkPDFNames(*'MediaBox CropBox BleedBox TrimBox ArtBox'.split()),
                 PrintScaling=checkPDFNames(*'None AppDefault'.split()),
+                Duplex=checkPDFNames(*'Simplex DuplexFlipShortEdge DuplexFlipLongEdge'.split()),
                 )
 
 # stream filters are objects to support round trip and
@@ -745,16 +747,10 @@ class ViewerPreferencesPDFDictionary(CheckedPDFDictionary):
 class PDFStreamFilterZCompress:
     pdfname = "FlateDecode"
     def encode(self, text):
-        from reportlab.lib.utils import import_zlib
-        zlib = import_zlib()
-        if not zlib: raise ImportError("cannot z-compress zlib unavailable")
         if isUnicode(text):
             text = text.encode('utf8')
         return zlib.compress(text)
     def decode(self, encoded):
-        from reportlab.lib.utils import import_zlib
-        zlib = import_zlib()
-        if not zlib: raise ImportError("cannot z-decompress zlib unavailable")
         return zlib.decompress(encoded)
 
 # need only one of these, unless we implement parameters later
@@ -1509,7 +1505,6 @@ class PDFOutlines(PDFObject):
 
 def count(tree, closedict=None):
     """utility for outline: recursively count leaves in a tuple/list tree"""
-    from operator import add
     if isinstance(tree,tuple):
         # leaf with subsections XXXX should clean up this structural usage
         (leafdict, subsections) = tree
@@ -1597,7 +1592,7 @@ class Annotation(PDFObject):
         permitted = self.permitted
         for name in d.keys():
             if name not in permitted:
-                raise ValueError("bad annotation dictionary name %s" % name)
+                raise ValueError("%s bad annotation dictionary name %s" % (self.__class__.__name__,name))
         return PDFDictionary(d)
     def Dict(self):
         raise ValueError("DictString undefined for virtual superclass Annotation, must overload")
@@ -1606,21 +1601,6 @@ class Annotation(PDFObject):
     def format(self, document):
         D = self.Dict()
         return D.format(document)
-
-class TextAnnotation(Annotation):
-    permitted = Annotation.permitted + (
-        "Open", "Name")
-    def __init__(self, Rect, Contents, **kw):
-        self.Rect = Rect
-        self.Contents = Contents
-        self.otherkw = kw
-    def Dict(self):
-        d = {}
-        d.update(self.otherkw)
-        d["Rect"] = self.Rect
-        d["Contents"] = self.Contents
-        d["Subtype"] = "/Text"
-        return self.AnnotationDict(**d)
 
 class FreeTextAnnotation(Annotation):
     permitted = Annotation.permitted + ("DA",)
@@ -1707,6 +1687,20 @@ class HighlightAnnotation(Annotation):
         d["C"] = self.Color
         return self.AnnotationDict(**d)
 
+class TextAnnotation(HighlightAnnotation):
+    permitted = HighlightAnnotation.permitted + (
+        "Open", "Name")
+    def __init__(self, Rect, Contents, **kw):
+        HighlightAnnotation.__init__(self,
+                Rect,
+                Contents,
+                QuadPoints=kw.pop("QuadPoints",None) or rect_to_quad(Rect),
+                Color=kw.pop("Color",(0,0,0)), 
+                **kw)
+    def Dict(self):
+        d = HighlightAnnotation.Dict(self)
+        d["Subtype"] = "/Text"
+        return d
 
 def rect_to_quad(Rect):
     """
@@ -2146,7 +2140,7 @@ class PDFImageXObject(PDFObject):
         self._filters = 'FlateDecode', #'Fl'
         if IMG: self._checkTransparency(IMG[0])
         elif self.mask=='auto': self.mask = None
-        self.streamContent = ''.join(imagedata[3:-1])
+        self.streamContent = b''.join(imagedata[3:-1])
 
     def _checkTransparency(self,im):
         if self.mask=='auto':
@@ -2170,8 +2164,6 @@ class PDFImageXObject(PDFObject):
         if fp:
             self.loadImageFromJPEG(fp)
         else:
-            zlib = import_zlib()
-            if not zlib: return
             self.width, self.height = im.getSize()
             raw = im.getRGBData()
             #assert len(raw) == self.width*self.height, "Wrong amount of data for image expected %sx%s=%s got %s" % (self.width,self.height,self.width*self.height,len(raw))

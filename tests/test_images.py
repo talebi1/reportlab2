@@ -8,11 +8,8 @@ Most of them make use of test\\pythonpowereed.gif."""
 from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, printLocation
 setOutDir(__name__)
 import os
-try:
-    from hashlib import md5
-except ImportError:
-    from md5 import md5
 import unittest
+from hashlib import md5
 from reportlab.lib.utils import ImageReader
 
 
@@ -41,6 +38,21 @@ class ReaderTestCase(unittest.TestCase):
         assert ir.getSize() == (110,44)
         pixels = ir.getRGBData()
         assert md5(pixels).hexdigest() == '02e000bf3ffcefe9fc9660c95d7e27cf'
+
+    def testUseA85(self):
+        '''test for bitbucket PR #59 by Vytis Banaitis'''
+        from reportlab import rl_config
+        from reportlab.pdfgen.canvas import Canvas
+        old = rl_config.useA85
+        try:    
+            for v in 1, 0:
+                rl_config.useA85 = v
+                c = Canvas('test_useA85%s.pdf' % v)
+                c.drawImage('test-rgba.png', 0,0)
+                c.showPage()
+                c.save()
+        finally:
+            rl_config.useA85 = old
 
 def makeSuite():
     return makeSuiteForClasses(ReaderTestCase)

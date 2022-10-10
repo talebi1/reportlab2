@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/xpreformatted.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/xpreformatted.py
 __all__ = (
             'XPreformatted',
             'PythonPreformatted',
@@ -8,7 +8,7 @@ __all__ = (
 __version__='3.5.20'
 __doc__='''A 'rich preformatted text' widget allowing internal markup'''
 from reportlab.lib import PyFontify
-from reportlab.platypus.paragraph import Paragraph, cleanBlockQuotedText, _handleBulletWidth, \
+from reportlab.platypus.paragraph import Paragraph, _handleBulletWidth, \
      ParaLines, _getFragWords, stringWidth, getAscentDescent, imgVRange, imgNormV
 from reportlab.lib.utils import isSeq
 from reportlab.platypus.flowables import _dedenter

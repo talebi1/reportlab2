@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/pdfbase/pdfmetrics.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/pdfbase/pdfmetrics.py
 #$Header $
 __version__='3.3.0'
 __doc__="""This provides a database of font metric information and
@@ -18,14 +18,13 @@ a registry of Font, TypeFace and Encoding objects.  Ideally these
 would be pre-loaded, but due to a nasty circularity problem we
 trap attempts to access them and do it on first access.
 """
-import string, os, sys
+import os, sys, encodings
 from reportlab.pdfbase import _fontdata
 from reportlab.lib.logger import warnOnce
-from reportlab.lib.utils import rl_isfile, rl_glob, rl_isdir, open_and_read, open_and_readlines, findInPaths, isSeq, isStr, isUnicode, isPy3
+from reportlab.lib.utils import rl_isfile, rl_glob, rl_isdir, open_and_read, open_and_readlines, findInPaths, isSeq, isStr
 from reportlab.rl_config import defaultEncoding, T1SearchPath
 from reportlab.lib.rl_accel import unicode2T1, instanceStringWidthT1
 from reportlab.pdfbase import rl_codecs
-from reportlab import ascii
 _notdefChar = b'n'
 
 rl_codecs.RL_Codecs.register()
@@ -81,7 +80,10 @@ def parseAFMFile(afmFileName):
             # width
             l, r = widthChunk.split()
             assert l == 'WX', 'bad line in font file %s' % line
-            width = int(r)
+            try:
+                width = int(r)
+            except ValueError:
+                width = float(r)
 
             # name
             l, r = nameChunk.split()
@@ -432,32 +434,16 @@ PFB_ASCII=chr(1)
 PFB_BINARY=chr(2)
 PFB_EOF=chr(3)
 
-if isPy3:
-    def _pfbCheck(p,d,m,fn):
-        if chr(d[p])!=PFB_MARKER or chr(d[p+1])!=m:
-            raise ValueError('Bad pfb file\'%s\' expected chr(%d)chr(%d) at char %d, got chr(%d)chr(%d)' % (fn,ord(PFB_MARKER),ord(m),p,d[p],d[p+1]))
-        if m==PFB_EOF: return
-        p = p + 2
-        l = (((((d[p+3])<<8)|(d[p+2])<<8)|(d[p+1]))<<8)|(d[p])
-        p = p + 4
-        if p+l>len(d):
-            raise ValueError('Bad pfb file\'%s\' needed %d+%d bytes have only %d!' % (fn,p,l,len(d)))
-        return p, p+l
-else:
-    def _pfbSegLen(p,d):
-        '''compute a pfb style length from the first 4 bytes of string d'''
-        return ((((ord(d[p+3])<<8)|ord(d[p+2])<<8)|ord(d[p+1]))<<8)|ord(d[p])
-
-    def _pfbCheck(p,d,m,fn):
-        if d[p]!=PFB_MARKER or d[p+1]!=m:
-            raise ValueError('Bad pfb file\'%s\' expected chr(%d)chr(%d) at char %d, got chr(%d)chr(%d)' % (fn,ord(PFB_MARKER),ord(m),p,ord(d[p]),ord(d[p+1])))
-        if m==PFB_EOF: return
-        p = p + 2
-        l = _pfbSegLen(p,d)
-        p = p + 4
-        if p+l>len(d):
-            raise ValueError('Bad pfb file\'%s\' needed %d+%d bytes have only %d!' % (fn,p,l,len(d)))
-        return p, p+l
+def _pfbCheck(p,d,m,fn):
+    if chr(d[p])!=PFB_MARKER or chr(d[p+1])!=m:
+        raise ValueError('Bad pfb file\'%s\' expected chr(%d)chr(%d) at char %d, got chr(%d)chr(%d)' % (fn,ord(PFB_MARKER),ord(m),p,d[p],d[p+1]))
+    if m==PFB_EOF: return
+    p = p + 2
+    l = (((((d[p+3])<<8)|(d[p+2])<<8)|(d[p+1]))<<8)|(d[p])
+    p = p + 4
+    if p+l>len(d):
+        raise ValueError('Bad pfb file\'%s\' needed %d+%d bytes have only %d!' % (fn,p,l,len(d)))
+    return p, p+l
 
 _postScriptNames2Unicode = None
 class EmbeddedType1Face(TypeFace):
@@ -553,7 +539,7 @@ class EmbeddedType1Face(TypeFace):
                     if u is not None:
                         rex[code] = u
                         ex[u] = code
-            encName = 'rl-dynamic-%s-encoding' % self.name.lower()
+            encName = encodings.normalize_encoding('rl-dynamic-%s-encoding' % self.name)
             rl_codecs.RL_Codecs.add_dynamic_codec(encName,ex,rex)
             self.requiredEncoding = encName
             enc = Encoding(encName, names)

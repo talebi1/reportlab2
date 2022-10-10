@@ -1,8 +1,8 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/tableofcontents.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/tableofcontents.py
 
-__version__='3.3.0'
+__version__='3.5.32'
 __doc__="""Experimental class to generate Tables of Contents easily
 
 This module defines a single TableOfContents() class that can be used to
@@ -44,17 +44,18 @@ lines after the first are indented by the same constant named
 epsilon.
 """
 
-from reportlab.lib import enums
 from reportlab.lib.units import cm
 from reportlab.lib.utils import commasplit, escapeOnce, encode_label, decode_label, strTypes, asUnicode, asNative
 from reportlab.lib.styles import ParagraphStyle, _baseFontName
+from reportlab.lib import sequencer as rl_sequencer
 from reportlab.platypus.paragraph import Paragraph
 from reportlab.platypus.doctemplate import IndexingFlowable
 from reportlab.platypus.tables import TableStyle, Table
-from reportlab.platypus.flowables import Spacer, Flowable
+from reportlab.platypus.flowables import Spacer
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 import unicodedata
+from ast import literal_eval
 
 def unquote(txt):
     from xml.sax.saxutils import unescape
@@ -239,7 +240,7 @@ class TableOfContents(IndexingFlowable):
         def drawTOCEntryEnd(canvas, kind, label):
             '''Callback to draw dots and page numbers after each entry.'''
             label = label.split(',')
-            page, level, key = int(label[0]), int(label[1]), eval(label[2],{})
+            page, level, key = int(label[0]), int(label[1]), literal_eval(label[2])
             style = self.getLevelStyle(level)
             if self.dotsMinLevel >= 0 and level >= self.dotsMinLevel:
                 dot = ' . '
@@ -305,13 +306,11 @@ class SimpleIndex(IndexingFlowable):
         self._flowable = None
         self.setup(**kwargs)
 
-    def getFormatFunc(self,format):
+    def getFormatFunc(self,formatName):
         try:
-            D = {}
-            exec('from reportlab.lib.sequencer import _format_%s as formatFunc' % format, D)
-            return D['formatFunc']
+            return getattr(rl_sequencer,'_format_%s' % formatName)
         except ImportError:
-            raise ValueError('Unknown format %r' % format)
+            raise ValueError('Unknown sequencer format %r' % formatName)
 
     def setup(self, style=None, dot=None, tableStyle=None, headers=True, name=None, format='123', offset=0):
         """

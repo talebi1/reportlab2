@@ -1,21 +1,22 @@
 #copyright ReportLab Europe Limited. 2000-2006
 #see license.txt for license details
-__version__=''' $Id: pdfencrypt.py 3662 2010-02-09 11:23:58Z rgbecker $ '''
+__version__='3.3.0'
 
 """helpers for pdf encryption/decryption"""
 
 import string, sys, os
-from reportlab.lib.utils import getBytesIO, md5, asBytes, int2Byte, char2int, rawUnicode, rawBytes, isPy3
+from reportlab.lib.utils import md5, asBytes, int2Byte, char2int, rawUnicode, rawBytes
 from hashlib import sha256
 from Crypto.Cipher import AES
 from Crypto import Random
-from reportlab.lib.utils import getStringIO
+from io import StringIO
+
 import tempfile
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase import pdfutils
 from reportlab.pdfbase.pdfdoc import PDFObject
 from reportlab.platypus.flowables import Flowable
-from reportlab import rl_config, ascii
+from reportlab import rl_config
 
 
 #AR debug hooks - leaving in for now
@@ -524,7 +525,7 @@ See http://developer.reportlab.com''')
     firstPageSize = bboxInfo['PageForms0'][2:]
 
     #now make a new PDF document
-    buf = getStringIO()
+    buf = StringIO()
     canv = Canvas(buf, pagesize=firstPageSize)
 
     # set a standard ID while debugging

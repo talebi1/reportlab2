@@ -1,11 +1,10 @@
 __all__=('AcroForm',)
-from reportlab.pdfbase.pdfdoc import PDFObject, PDFArray, PDFDictionary, PDFString, pdfdocEnc, PDFName, PDFStream, PDFStreamFilterZCompress, escapePDF
-from reportlab.pdfgen.canvas  import Canvas
+from reportlab.pdfbase.pdfdoc import (PDFObject, PDFArray, PDFDictionary, PDFString, pdfdocEnc,
+                                    PDFName, PDFStream, PDFStreamFilterZCompress, escapePDF)
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.lib.colors import Color, CMYKColor, Whiter, Blacker, opaqueColor
 from reportlab.lib.rl_accel import fp_str
 from reportlab.lib.utils import isStr, asNative
-from reportlab import xrange
 import weakref
 
 visibilities = dict(
@@ -158,6 +157,7 @@ class AcroForm(PDFObject):
         self._refMap = {}
         self._pdfdocenc = {}
         self.sigFlags = None
+        self.extras = {}
 
     @property
     def canv(self):
@@ -179,6 +179,7 @@ class AcroForm(PDFObject):
             F = [self.fontRef(f) for f in FK]
             d['DA'] = PDFString('/%s 0 Tf 0 g' % FK[0])
             d['DR'] = PDFFromString('<< /Encoding\n<<\n/RLAFencoding\n%s\n>>\n%s\n>>' % (self.encRefStr,'\n'.join(F)))
+        d.update(self.extras)
         r = PDFDictionary(d).format(doc)
         return r
 
@@ -1104,7 +1105,7 @@ class CBMark:
         points = self.points
         for op in self.ops:
             c = opCount[op]
-            for _ in xrange(c):
+            for _ in range(c):
                 C(xsc(points[i]))
                 C(ysc(points[i+1]))
                 i += 2

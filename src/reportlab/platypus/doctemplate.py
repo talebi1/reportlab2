@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/doctemplate.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/doctemplate.py
 __all__ = (
         'ActionFlowable',
         'BaseDocTemplate',
@@ -55,7 +55,6 @@ from reportlab.rl_config import defaultPageSize, verbose
 import reportlab.lib.sequencer
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import isSeq, encode_label, decode_label, annotateException, strTypes
-from reportlab import ascii
 
 try:
     set
@@ -351,6 +350,9 @@ class onDrawStr(str):
         self.label = label
         return self
 
+    def __getnewargs__(self):
+        return str(self),self.onDraw,self.label,self.kind
+
 class PageAccumulator:
     '''gadget to accumulate information in a page
     and then allow it to be interrogated at the end
@@ -506,6 +508,19 @@ class BaseDocTemplate:
                     'trimBox': None,
                     'bleedBox': None,
                     'keepTogetherClass': KeepTogether,
+                    'hideToolbar': None,
+                    'hideMenubar': None,
+                    'hideWindowUI': None,
+                    'fitWindow': None,
+                    'centerWindow': None,
+                    'nonFullScreenPageMode': None,
+                    'direction': None,
+                    'viewArea': None,
+                    'viewClip': None,
+                    'printArea': None,
+                    'printClip': None,
+                    'printScaling': None,
+                    'duplex': None,
                     }
     _invalidInitArgs = ()
     _firstPageTemplateIndex = 0
@@ -587,7 +602,11 @@ class BaseDocTemplate:
     def handle_documentBegin(self):
         '''implement actions at beginning of document'''
         self._hanging = [PageBegin]
-        self.pageTemplate = self.pageTemplates[self._firstPageTemplateIndex]
+        if isinstance(self._firstPageTemplateIndex,list):
+            self.handle_nextPageTemplate(self._firstPageTemplateIndex)
+            self._setPageTemplate()
+        else:
+            self.pageTemplate = self.pageTemplates[self._firstPageTemplateIndex]
         self.page = 0
         self.beforeDocument()
 
@@ -981,6 +1000,7 @@ class BaseDocTemplate:
                             artBox = self.artBox,
                             trimBox = self.trimBox,
                             bleedBox = self.bleedBox,
+                            lang = self.lang,
                             )
 
         getattr(canv,'setEncrypt',lambda x: None)(self.encrypt)
@@ -992,10 +1012,15 @@ class BaseDocTemplate:
         canv.setCreator(self.creator)
         canv.setProducer(self.producer)
         canv.setKeywords(self.keywords)
-        if self.displayDocTitle is not None:
-            canv.setViewerPreference('DisplayDocTitle',['false','true'][self.displayDocTitle])
-        if self.lang:
-            canv.setCatalogEntry('Lang',self.lang)
+        from reportlab.pdfbase.pdfdoc import (
+                ViewerPreferencesPDFDictionary as VPD, checkPDFBoolean as cPDFB,
+                )
+        for k,vf in VPD.validate.items():
+            v = getattr(self,k[0].lower()+k[1:],None)
+            if v is not None:
+                if vf is cPDFB:
+                    v = ['false','true'][v] #convert to pdf form of boolean
+                canv.setViewerPreference(k,v)
 
         if self._onPage:
             canv.setPageCallBack(self._onPage)
@@ -1216,11 +1241,11 @@ class BaseDocTemplate:
         try:
             if lifetime not in self._allowedLifetimes:
                 raise ValueError('bad lifetime %r not in %r'%(lifetime,self._allowedLifetimes))
-            exec(stmt, {},NS)
+            exec(stmt, NS)
         except:
-            for k in NS.keys():
-                if k not in K0:
-                    del NS[k]
+            K1 = [k for k in NS if k not in K0] #the added keys we need to delete
+            for k in K1:
+                del NS[k]
             annotateException('\ndocExec %s lifetime=%r failed!\n' % (stmt,lifetime))
         self._addVars([k for k in NS.keys() if k not in K0],lifetime)
 

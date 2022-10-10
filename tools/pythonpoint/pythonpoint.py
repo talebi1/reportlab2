@@ -71,14 +71,14 @@ Recently added features are:
 - add pyRXP support (TODO)
 """
 __version__='3.3.0'
-import os, sys, imp, pprint, getopt, glob, re
+import os, sys, getopt, glob, re
+from io import BytesIO
 
 from reportlab import rl_config
-from reportlab.lib import styles
 from reportlab.lib import colors
 from reportlab.lib.units import cm
-from reportlab.lib.utils import getBytesIO, isStr, isPy3, isBytes, isUnicode
-from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
+from reportlab.lib.utils import isStr, isBytes, isUnicode
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfgen import canvas
 from reportlab.platypus.doctemplate import SimpleDocTemplate
@@ -353,7 +353,7 @@ class PPPresentation:
         if self.verbose:
             print(filename)
         #canv = canvas.Canvas(filename, pagesize = pageSize)
-        outfile = getBytesIO()
+        outfile = BytesIO()
         if self.notes:
             #translate the page from landscape to portrait
             pageSize= pageSize[1], pageSize[0]
@@ -404,7 +404,7 @@ class PPPresentation:
         if self.sourceFilename :
             filename = os.path.splitext(self.sourceFilename)[0] + '.pdf'
 
-        outfile = getBytesIO()
+        outfile = BytesIO()
         doc = SimpleDocTemplate(outfile, pagesize=rl_config.defaultPageSize, showBoundary=0)
         doc.leftMargin = 1*cm
         doc.rightMargin = 1*cm
@@ -602,8 +602,6 @@ class PPPara:
         pass
 
     def getFlowable(self):
-##        print 'rawText for para:'
-##        print repr(self.rawtext)
         p = Paragraph(
                     self.rawtext,
                     getStyles()[self.style],
@@ -973,8 +971,8 @@ def validate(rawdata):
 
 
 def _re_match(pat,text,flags=re.M|re.I):
-    if isPy3 and isBytes(text):
-            pat = pat.encode('latin1')
+    if isBytes(text):
+        pat = pat.encode('latin1')
     return re.match(pat,text,flags)
 
 def process(datafile, notes=0, handout=0, printout=0, cols=0, verbose=0, outDir=None, datafilename=None, fx=1):
@@ -1006,10 +1004,7 @@ def process(datafile, notes=0, handout=0, printout=0, cols=0, verbose=0, outDir=
             raise ValueError('cannot decode input data')
     else:
         udata = rawdata
-    if isPy3:
-        rawdata = udata
-    else:
-        rawdata = udata.encode('utf8')
+    rawdata = udata
 
     #if pyRXP present, use it to check and get line numbers for errors...
     validate(rawdata)

@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/flowables.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/flowables.py
 __version__='3.3.0'
 __doc__="""
 A flowable is a "floating element" in a document whose exact position is determined by the
@@ -26,17 +26,15 @@ higher level components).
 """
 import os
 from copy import deepcopy, copy
-from reportlab.lib.colors import red, gray, lightgrey
+from reportlab.lib.colors import gray, lightgrey
 from reportlab.lib.rl_accel import fp_str
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.lib.styles import _baseFontName
-from reportlab.lib.utils import strTypes
+from reportlab.lib.utils import strTypes, rl_safe_exec
 from reportlab.lib.abag import ABag
 from reportlab.pdfbase import pdfutils
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.rl_config import _FUZZ, overlapAttachedSpace, ignoreContainerActions, listWrapOnFakeWidth
-from reportlab import xrange
-import collections
 
 __all__ = '''AnchorFlowable BalancedColumns BulletDrawer CallerMacro CondPageBreak DDIndenter DocAssert
         DocAssign DocExec DocIf DocPara DocWhile FailOnDraw FailOnWrap Flowable FrameBG FrameSplitter
@@ -401,7 +399,7 @@ class Image(Flowable):
     _fixedWidth = 1
     _fixedHeight = 1
     def __init__(self, filename, width=None, height=None, kind='direct',
-                 mask="auto", lazy=1, hAlign='CENTER'):
+                 mask="auto", lazy=1, hAlign='CENTER', useDPI=False):
         """If size to draw at not specified, get it from the image."""
         self.hAlign = hAlign
         self._mask = mask
@@ -418,6 +416,7 @@ class Image(Flowable):
             fp = True
         else:
             self._file = self.filename = filename
+        self._dpi = useDPI
         if not fp and os.path.splitext(filename)[1] in ['.jpg', '.JPG', '.jpeg', '.JPEG']:
             # if it is a JPEG, will be inlined within the file -
             # but we still need to know its size now
@@ -434,12 +433,20 @@ class Image(Flowable):
                 f.close()
             self.imageWidth = info[0]
             self.imageHeight = info[1]
+            if useDPI:
+                self._dpi = info[3]
             self._img = None
             self._setup(width,height,kind,0)
         elif fp:
             self._setup(width,height,kind,0)
         else:
             self._setup(width,height,kind,lazy)
+
+    def _dpiAdjust(self):
+        dpi = self._dpi
+        if dpi:
+            if dpi[0]!=72: self.imageWidth *= 72.0 / dpi[0]
+            if dpi[1]!=72: self.imageHeight *= 72.0 / dpi[1]
 
     def _setup(self,width,height,kind,lazy):
         self._lazy = lazy
@@ -455,8 +462,12 @@ class Image(Flowable):
         img = self._img
         if img:
             self.imageWidth, self.imageHeight = img.getSize()
+            if self._dpi and hasattr(img,'_image'):
+                self._dpi = img._image.info.get('dpi',(72,72))
         elif self._drawing:
             self.imageWidth, self.imageHeight = self._drawing.width,self._drawing.height
+            self._dpi = False
+        self._dpiAdjust()
         if self._lazy>=2: del self._img
         if kind in ['direct','absolute']:
             self.drawWidth = width or self.imageWidth
@@ -570,6 +581,9 @@ class PageBreak(UseUpSpace):
     def __init__(self,nextTemplate=None):
         self.nextTemplate = nextTemplate
 
+    def __repr__(self):
+        return "%s(%s)" % (self.__class__.__name__,repr(self.nextTemplate) if self.nextTemplate else '')
+
 class SlowPageBreak(PageBreak):
     pass
 
@@ -625,7 +639,7 @@ def _listWrapOn(F,availWidth,canv,mergeSpace=1,obj=None,dims=None,fakeWidth=None
             if dims is not None: dims.append((w,h))
             if cframe:
                 _addGeneratedContent(F,cframe)
-            if w<=_FUZZ or h<=_FUZZ: continue
+            if (w<=_FUZZ and False) or h<=_FUZZ: continue
             W = max(W,min(w,availWidth) if fakeWidth else w)
             H += h
             if not atTop:
@@ -755,7 +769,7 @@ class Macro(Flowable):
     def wrap(self, availWidth, availHeight):
         return (0,0)
     def draw(self):
-        exec(self.command, globals(), {'canvas':self.canv})
+        rl_safe_exec(self.command, g=None, l={'canvas':self.canv})
 
 def _nullCallable(*args,**kwds):
     pass
@@ -931,7 +945,7 @@ class _Container(_ContainerSpace):  #Abstract some common container like behavio
                 aW -= (c.left+c.right)*scale
                 continue
             w, h = c.wrapOn(canv,aW,0xfffffff)
-            if (w<_FUZZ or h<_FUZZ) and not getattr(c,'_ZEROSIZE',None): continue
+            if h<_FUZZ and not getattr(c,'_ZEROSIZE',None): continue
             if yt!=y:
                 s = c.getSpaceBefore()
                 if not getattr(c,'_SPACETRANSFER',False):
@@ -995,7 +1009,7 @@ class PTOContainer(_Container,Flowable):
         n = len(C)
         I2W = {}
         dLeft = dRight = 0
-        for x in xrange(n):
+        for x in range(n):
             c = C[x]
             I = c._ptoinfo
             if I not in I2W.keys():
@@ -1248,7 +1262,10 @@ class _FindSplitterMixin:
                         if nH<aH: nH += leading
                         availHeight += nH-aH
                         aH = nH
-                S = cdeepcopy(f).splitOn(canv,availWidth,aH)
+                try:
+                    S = cdeepcopy(f).splitOn(canv,availWidth,aH)
+                except:
+                    S  = None   #sometimes the deepcopy cannot be done
                 if not S:
                     return W, availHeight, F[:i],F[i:]
                 else:
@@ -1511,7 +1528,7 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
     def _generated_content(self,aW,aH):
         G = []
         frame = self._frame
-        from reportlab.platypus.doctemplate import CurrentFrameFlowable,LayoutError, ActionFlowable, Indenter
+        from reportlab.platypus.doctemplate import LayoutError, ActionFlowable, Indenter
         from reportlab.platypus.frames import Frame
         from reportlab.platypus.doctemplate import FrameBreak
         lpad = frame._leftPadding if self._leftPadding is None else self._leftPadding
@@ -1524,7 +1541,7 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
         hgap = gap*0.5
         canv = self.canv
         nCols = self._nCols
-        cw = (aW - gap*(nCols-1))/float(nCols)
+        cw = (aW - gap*(nCols-1) - lpad - rpad)/float(nCols)
         aH0 = aH
         aH -= tpad + bpad
         W,H0,_C0,C2 = self._findSplit(canv,cw,nCols*aH,paraFix=False)
@@ -1542,7 +1559,7 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
                 h = 0
                 cn = None
                 icheck = nCols-2 if endSlack else -1
-                for i in xrange(nCols):
+                for i in range(nCols):
                     wi, hi, c0, c1 = self._findSplit(canv,cw,ah,content=cn,paraFix=False)
                     w = max(w,wi)
                     h = max(h,hi)
@@ -1614,6 +1631,9 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
             assert not C2, "unexpected non-empty C2"
         W1, H1, C, C1 = splitFunc(H, endSlack)
         _fres.clear()
+        if C[0]==[] and C[1]==[] and C1:
+            #no split situation
+            C, C1 = [C1,C[1]], C[0]
 
         x1 = frame._x1
         y1 = frame._y1
@@ -1636,7 +1656,7 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
                 id='%s-%d' %(self.name,i),
                 showBoundary=showBoundary,
                 overlapAttachedSpace=frame._oASpace,
-                _debug=frame._debug) for i in xrange(nCols)]
+                _debug=frame._debug) for i in range(nCols)]
 
 
         #we are going to modify the current template
@@ -1648,7 +1668,8 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
         xbg = bg = BGs[-1] if BGs else None
 
         class TAction(ActionFlowable):
-            def __init__(self,bgs=[],F=[],f=None):
+            '''a special Action flowable that sets stuff on the doc template T'''
+            def __init__(self, bgs=[],F=[],f=None):
                 Flowable.__init__(self)
                 self.bgs = bgs
                 self.F = F
@@ -1703,7 +1724,7 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
                         )
             if doVLines:
                 vLines = []
-                for i in xrange(1,nCols):
+                for i in range(1,nCols):
                     vlx = 0.5*(F[i]._x1 + F[i-1]._x1+F[i-1]._width)
                     vLines.append(_AbsLine(vlx,oby2,vlx,oby1,strokeWidth=self._vLinesStrokeWidth,strokeColor=self._vLinesStrokeColor))
         else:
@@ -1713,10 +1734,12 @@ class BalancedColumns(_FindSplitterMixin,NullDraw):
         if doBox: G.append(box)
         if doVLines: G.extend(vLines)
         sa = self.getSpaceAfter()
-        for i in xrange(nCols):
-            Ci = KeepInFrame(W1,H1,C[i],mode='shrink')
-            sa = max(sa,Ci.getSpaceAfter())
-            G.append(Ci)
+        for i in range(nCols):
+            Ci = C[i]
+            if Ci:
+                Ci = KeepInFrame(W1,H1,Ci,mode='shrink')
+                sa = max(sa,Ci.getSpaceAfter())
+                G.append(Ci)
             if i!=nCols-1:
                 G.append(FrameBreak)
         G.append(TAction(BGs,oldFrames,frame))
@@ -1937,7 +1960,7 @@ def _bulletFormat(value,type='1',format=None):
     if format:
         if isinstance(format,strTypes):
             s = format % s
-        elif isinstance(format, collections.Callable):
+        elif callable(format):
             s = format(s)
         else:
             raise ValueError('unexpected BulletDrawer format %r' % format)
@@ -2033,7 +2056,7 @@ class DDIndenter(Flowable):
                 return self.__dict__[a]
             except KeyError:
                 if a not in ('spaceBefore','spaceAfter'):
-                    raise
+                    raise AttributeError('%r has no attribute %s' % (self,a))
         return getattr(self._flowable,a)
 
     def __setattr__(self,a,v):

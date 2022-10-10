@@ -15,7 +15,6 @@ pageCompression
 useA85
 defaultPageSize
 defaultImageCaching
-ZLIB_WARNINGS
 warnOnMissingFontGlyphs
 verbose
 showBoundary
@@ -63,7 +62,12 @@ hyphenationLang
 uriWasteReduce
 embeddedHyphenation
 hyphenationMinWordLength
-reserveTTFNotdef'''.split())
+reserveTTFNotdef
+documentLang
+encryptionStrength
+trustedHosts
+trustedSchemes
+renderPMBackend'''.split())
 
 allowTableBoundsErrors =    1 # set to 0 to die on too large elements in tables in debug (recommend 1 for production use)
 shapeChecking =             1
@@ -73,7 +77,6 @@ pageCompression =           1                       # default page compression m
 useA85 =                    1                       #set to 0 to disable Ascii Base 85 stream filters
 defaultPageSize =           'A4'                    #default page size
 defaultImageCaching =       0                       #set to zero to remove those annoying cached images
-ZLIB_WARNINGS =             1
 warnOnMissingFontGlyphs =   0                       #if 1, warns of each missing glyph
 verbose =                   0
 showBoundary =              0                       # turns on and off boundary behaviour in Drawing
@@ -98,11 +101,7 @@ canvas_basefontname=        'Helvetica'             #this is used to initialize 
                                                     #if the bold/italic/bold italic fonts are also registered and defined as a family.
 
 allowShortTableRows=1                               #allows some rows in a table to be short
-imageReaderFlags=0                                  #attempt to convert images into internal memory files to reduce
-                                                    #the number of open files (see lib.utils.ImageReader)
-                                                    #if imageReaderFlags&2 then attempt autoclosing of those files
-                                                    #if imageReaderFlags&4 then cache data 
-                                                    #if imageReaderFlags==-1 then use Ralf Schmitt's re-opening approach
+imageReaderFlags=0                                  #no longer in use
 paraFontSizeHeightOffset=   1                       #if true paragraphs start at height-fontSize
 canvas_baseColor=           None                    #initialize the canvas fill and stroke colors if this is set
 ignoreContainerActions=     1                       #if true then action flowables in flowable _Containers will be ignored
@@ -150,6 +149,14 @@ embeddedHyphenation=0                               #if true attempt hypenation 
 hyphenationMinWordLength=5                          #minimum length of words that can be hyphenated
 reserveTTFNotdef=0                                  #if true force subset element 0 to be zero(.notdef)
                                                     #helps to fix bug in edge
+documentLang=None                                   #pdf document catalog Lang value xx-xx not ee_xx
+encryptionStrength=40                               #the bits for standard encryption 40, 128 or 256 (AES)
+trustedHosts=None                                   #set to a list of trusted for access hosts None means
+                                                    #all are trusted glob patterns eg *.reportlab.com are
+                                                    #allowed. In environment use a comma separated string.
+trustedSchemes=['file', 'rml', 'data', 'https',     #these url schemes are trusted
+                'http', 'ftp']
+renderPMBackend='_renderPM'                         #or 'rlPyCairo' if available
 
 # places to look for T1Font information
 T1SearchPath =  (

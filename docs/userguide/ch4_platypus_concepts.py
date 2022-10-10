@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/docs/userguide/ch4_platypus_concepts.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/docs/userguide/ch4_platypus_concepts.py
 from tools.docco.rl_doc_utils import *
 
 #####################################################################################################3
@@ -123,7 +123,7 @@ Paragraphs skip past the title string.
 
 disc("""
 To see the output of this example program run the module
-$docs/userguide/examples.py$ (from the ReportLab $docs$ distribution)
+$tools/docco/examples.py$ (from the ReportLab $source$ distribution)
 as a "top level script".  The script interpretation $python examples.py$ will
 generate the Platypus output $phello.pdf$.
 """)

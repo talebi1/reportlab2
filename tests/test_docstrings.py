@@ -13,7 +13,7 @@ from reportlab.lib.testutils import setOutDir,SecureTestCase, GlobDirectoryWalke
 setOutDir(__name__)
 import os, sys, glob, re, unittest, inspect
 import reportlab
-from reportlab.lib.utils import rl_exec, isPy3, isPyPy
+from reportlab.lib.utils import rl_exec, isPyPy
 
 def typ2is(typ):
     return getattr(inspect,'is'+typ)
@@ -96,9 +96,14 @@ def getObjects(objects,lookup,mName,modBn,tobj):
             continue
         typ = obj2typ(obj)
         if typ in ('function','method'):
-            if not isPyPy and os.path.splitext(obj.__code__.co_filename)[0]==modBn:
-                lookup[obj] = 1
-                objects.setdefault(typ if typ=='function' and ttyp=='module' else 'method',[]).append((mName,obj))
+            try:
+                cond = not isPyPy and os.path.splitext(obj.__code__.co_filename)[0]==modBn
+            except:
+                pass
+            else:
+                if cond:
+                    lookup[obj] = 1
+                    objects.setdefault(typ if typ=='function' and ttyp=='module' else 'method',[]).append((mName,obj))
         elif typ=='class':
             if obj.__module__==mName:
                 lookup[obj] = 1
@@ -189,7 +194,7 @@ class DocstringTestCase(SecureTestCase):
 def makeSuite():
     suite = unittest.TestSuite()
     loader = unittest.TestLoader()
-    if sys.platform[:4] != 'java': suite.addTest(loader.loadTestsFromTestCase(DocstringTestCase))
+    suite.addTest(loader.loadTestsFromTestCase(DocstringTestCase))
     return suite
 
 #noruntests

@@ -3,7 +3,7 @@
 """
 Tests for chart class.
 """
-from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation
+from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation, rlextraNeeded
 setOutDir(__name__)
 
 import os, sys, copy
@@ -29,6 +29,7 @@ from reportlab.graphics.charts.piecharts import Pie
 from reportlab.graphics.charts.legends import Legend
 from reportlab.graphics.charts.spider import SpiderChart
 from reportlab.graphics.widgets.markers import makeMarker
+from reportlab.graphics.widgets.adjustableArrow import AdjustableArrowDrawing
 
 try:
     from reportlab.graphics import _renderPM
@@ -109,6 +110,40 @@ def sample2bar(data=[(13, 5, 20, 22, 37, 45, 19, 4),
                   (14, 6, 21, 23, 38, 46, 20, 5)]):
     return sample1bar(data)
 
+def sample1barline(
+        data=[(100,110,120,130),(70,25,85,30),(63,75,51,92),(51,21,66,71),(10,11,90,30)],
+        seriesOrder=[[0,3,1],[4],[2]],
+        lines=[3,4],
+        cAStyle = 'mixed',
+        ):
+        d = Drawing(400,250)
+        chart = VerticalBarChart()
+        d.add(chart,name='chart')
+        leg = Legend()
+        d.add(leg, name='leg')
+        chart.bars.strokeColor = None
+        chart.bars[2].fillColor   = colors.blue
+        chart.bars[3].fillColor   = colors.orange
+        chart.bars[4].fillColor   = colors.black#yellow
+        chart.bars[4].strokeWidth     = 3
+        chart.bars[4].symbol = makeMarker('FilledDiamond',size=10,fillColor=colors.red)
+        chart.barSpacing = 1
+        chart.categoryAxis.style=cAStyle
+        chart.data = data
+        chart.x = 20
+        chart.y = 70
+        chart.height = d.height - chart.y -10
+        chart.valueAxis.forceZero = True
+        chart.width = d.width-chart.x - 10
+        for i in lines: chart.bars[i].isLine=1
+        for i in lines: chart.bars[i].strokeWidth = 2
+        leg.colorNamePairs = Auto(chart=chart)
+        leg.x = d.width / 2
+        leg.y = 5
+        leg.boxAnchor = 's'
+        leg.columnMaximum = 1
+        leg.alignment='right'
+        return d
 
 def sample1line(data=[(13, 5, 20, 22, 37, 45, 19, 4)]):
     drawing = Drawing(400, 200)
@@ -286,12 +321,20 @@ h1 = styleSheet['Heading1']
 h2 = styleSheet['Heading2']
 h3 = styleSheet['Heading3']
 
-def run_samples(S,kind='axes'):
+def eps():
+    try:
+        from rlextra.graphics import renderPS_SEP
+    except ImportError:
+        return []
+    else:
+        return ['eps']
+
+def run_samples(L):
     outDir = outputfile('charts-out')
-    for f in S:
-        if f.startswith('sample'):
-            d = S[f]()
-            d.save(formats=['pdf', 'gif', 'svg'],outDir=outDir, fnRoot='test_graphics_charts_%s_%s' % (kind,f))
+    for k,f,kind in L:
+        d = f()
+        if not isinstance(d,Drawing): continue
+        d.save(formats=['pdf', 'gif', 'svg', 'ps', 'py']+eps(),outDir=outDir, fnRoot='test_graphics_charts_%s_%s' % (kind,k))
 
 class ChartTestCase(unittest.TestCase):
     "Test chart classes."
@@ -310,6 +353,12 @@ class ChartTestCase(unittest.TestCase):
         doc = MyDocTemplate(path)
         doc.build(cls.story)
 
+        global fontName
+        fontName = 'Helvetica'
+        run_samples([(k,v,'special') for k,v in globals().items() if k.lower().startswith('sample')
+                            or k in ('lpleg', 'hlcleg', 'bcleg', 'pcleg', 'scleg', 'plpleg')
+                            ])
+
     def test0(self):
         "Test bar charts."
 
@@ -318,6 +367,12 @@ class ChartTestCase(unittest.TestCase):
 
         story.append(Spacer(0, 0.5*cm))
         drawing = sample1bar()
+        story.append(drawing)
+        story.append(Spacer(0, 1*cm))
+        story.append(Paragraph('Multiple series mixed bar style with lines', h2))
+
+        story.append(Spacer(0, 0.5*cm))
+        drawing = sample1barline()
         story.append(drawing)
         story.append(Spacer(0, 1*cm))
 
@@ -447,6 +502,22 @@ class ChartTestCase(unittest.TestCase):
         drawing8 = sample8()
         story.append(drawing8)
         story.append(Spacer(0,1*cm))
+        story.append(Paragraph('The drawing is set as zero size, but the widget can still draw where you want it.', bt))
+        def makeArrow(scale=0.2,boxAnchor='c',**kwds):
+            A = AdjustableArrowDrawing()
+            A.width = A.height = 0
+            A._ZEROSIZE = True
+            A.adjustableArrow.scale = scale
+            A.adjustableArrow.boxAnchor = boxAnchor
+            for k,v in kwds.items():
+                setattr(A.adjustableArrow,k,v)
+            return A
+        A = makeArrow()
+        bb = A.getBounds()
+        deltax = 2 + max(bb[2]-bb[0],bb[3]-bb[1])
+        for i,angle in enumerate((0, 10, 20, 60, 90, 120, 180, 270, 315)):
+            story.append(makeArrow(y=-10,x=deltax*i,angle=angle,strokeColor=colors.black,strokeWidth=0.5,headSweep=-i*0.6))
+        story.append(Spacer(0,1*cm))
 
     @unittest.skipIf(not _renderPM,'no _renderPM')
     def test8(self):
@@ -545,6 +616,42 @@ class ChartTestCase(unittest.TestCase):
             xAxis.setPosition(75, 75, 300)
             xAxis.configure(data)
             xAxis.categoryNames = ['Ying']
+            xAxis.labels.boxAnchor = 'n'
+            drawing.add(xAxis)
+            return drawing
+
+        @unittest.skipIf(rlextraNeeded(),'s')
+        def sample0c():
+            "Sample drawing with one xcat axis and two buckets."
+            class DDFStyle(ParagraphStyle):
+                def __init__(self,**kwds):
+                    if 'fillColor' in kwds:
+                        kwds['textColor'] = kwds.pop('fillColor')
+                    kwds.update({k:v for k,v in (
+                                    ('name','DDFStyle'),
+                                    ('alignment',0),
+                                    ('hyphenationLang',None),
+                                    ('hyphenationMinWordLength',4),
+                                    ('uriWasteReduce',0.3),
+                                    ('embeddedHyphenation',2),
+                                    ('textColor',colors.blue),
+                                    ('backColor',colors.yellow),
+                                    ) if k not in kwds})
+                    super().__init__(**kwds)
+
+            drawing = Drawing(400, 200)
+            data = [(10, 20)]
+            xAxis = XCategoryAxis()
+            xAxis.labels.ddfKlass = Paragraph
+            xAxis.labels.ddfStyle = DDFStyle
+            xAxis.labels.maxWidth = 48
+            xAxis.labels.fillColor = colors.red
+            xAxis.labels.fontName = 'Helvetica'
+            xAxis.labels.fontSize = 12
+            xAxis.labels.leading = 12
+            xAxis.setPosition(75, 75, 100)
+            xAxis.configure(data)
+            xAxis.categoryNames = ['Ying and Mao\xadTse\xadTung are bonkers', 'Yang is not a comm\xadun\xadist']
             xAxis.labels.boxAnchor = 'n'
             drawing.add(xAxis)
             return drawing
@@ -973,7 +1080,23 @@ class ChartTestCase(unittest.TestCase):
 
             return drawing
 
-        run_samples(locals())
+        def sample_hatching():
+            d = Drawing(width=110,height=110)
+            d.add(Hatching(spacings=(5,5),angles=(45,-45),xyLists=[5,5, 5,100, 99,105, 105,5],strokeWidth=1,strokeColor=colors.toColor('red'), strokeDashArray=None))
+            return d
+
+        def extract_samples():
+            S = [].extend
+            for m in ('barcharts','doughnut','linecharts','lineplots','piecharts','spider'):
+                mod = {}
+                exec('from reportlab.graphics.charts import %s as mod' % m ,mod)
+                mod  = mod['mod']
+                L = [(k,getattr(mod,k)) for k in dir(mod) if k.lower().startswith('sample')]
+                S([(k,v,m) for k,v in L if callable(v)])
+            return S.__self__
+
+        run_samples([(k,v,'axes') for k,v in locals().items() if k.lower().startswith('sample')])
+        run_samples(extract_samples())
 
     def test_legends(self):
         from reportlab.graphics.charts.legends import Legend, LineLegend, LineSwatch
@@ -1085,7 +1208,7 @@ class ChartTestCase(unittest.TestCase):
             d.legend.swatchCallout = LSwatchCallout(sw_names,'Helvetica',12)
             return d
 
-        run_samples(locals(),'legends')
+        run_samples([(k,v,'legends') for k,v in locals().items() if k.lower().startswith('sample')])
 
 def makeSuite():
     return makeSuiteForClasses(ChartTestCase)

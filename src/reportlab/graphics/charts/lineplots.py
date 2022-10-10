@@ -1,24 +1,24 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/lineplots.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/graphics/charts/lineplots.py
 
 __version__='3.3.0'
 __doc__="""This module defines a very preliminary Line Plot example."""
 
-import string, time
-
 from reportlab.lib import colors
 from reportlab.lib.validators import *
 from reportlab.lib.attrmap import *
-from reportlab.graphics.shapes import Drawing, Group, Rect, Line, PolyLine, Polygon, _SetKeyWordArgs
-from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection, PropHolder
+from reportlab.lib.utils import flatten, isStr
+from reportlab.graphics.shapes import Drawing, Group, Rect, PolyLine, Polygon, _SetKeyWordArgs
+from reportlab.graphics.widgetbase import TypedPropertyCollection, PropHolder, tpcGetItem
 from reportlab.graphics.charts.textlabels import Label
 from reportlab.graphics.charts.axes import XValueAxis, YValueAxis, AdjYValueAxis, NormalDateXValueAxis
 from reportlab.graphics.charts.utils import *
-from reportlab.graphics.widgets.markers import uSymbol2Symbol, isSymbol, makeMarker
-from reportlab.graphics.widgets.grids import Grid, DoubleGrid, ShadedRect, ShadedPolygon
+from reportlab.graphics.widgets.markers import uSymbol2Symbol, makeMarker
+from reportlab.graphics.widgets.grids import Grid, DoubleGrid, ShadedPolygon
 from reportlab.pdfbase.pdfmetrics import stringWidth, getFont
 from reportlab.graphics.charts.areas import PlotArea
+from .utils import FillPairedData
 
 # This might be moved again from here...
 class LinePlotProperties(PropHolder):
@@ -193,18 +193,38 @@ class LinePlot(AbstractLineChart):
         self._seriesCount = len(self.data)
         self._rowLength = max(list(map(len,self.data)))
 
-        self._positions = []
-        for rowNo in range(len(self.data)):
-            line = []
-            for colNo in range(len(self.data[rowNo])):
-                datum = self.data[rowNo][colNo] # x,y value
-                if isinstance(datum[0],str):
-                    x = self.xValueAxis.scale(mktime(mkTimeTuple(datum[0])))
+        pairs = set()
+        P = [].append
+        xscale = self.xValueAxis.scale
+        yscale = self.yValueAxis.scale
+        data = self.data
+        n = len(data)
+        for rowNo, row in enumerate(data):
+            if isinstance(row, FillPairedData):
+                other = row.other
+                if 0<=other<n:
+                    if other==rowNo:
+                        raise ValueError('data row %r may not be paired with itself' % rowNo)
+                    pairs.add((rowNo,other))
                 else:
-                    x = self.xValueAxis.scale(datum[0])
-                y = self.yValueAxis.scale(datum[1])
-                line.append((x, y))
-            self._positions.append(line)
+                    raise ValueError('data row %r is paired with invalid data row %r' % (rowNo, other))
+            line = [].append
+            for colNo, datum in enumerate(row):
+                xv = datum[0]
+                line(
+                    (
+                    xscale(mktime(mkTimeTuple(xv))) if isStr(xv) else xscale(xv),
+                    yscale(datum[1])
+                    )
+                    )
+            P(line.__self__)
+        P = P.__self__
+
+        #if there are some paired lines we ensure only one is created
+        for rowNo, other in pairs:
+            P[rowNo] = FillPairedData(P[rowNo],other)
+        self._pairInFills = len(pairs)
+        self._positions = P
 
     def _innerDrawLabel(self, rowNo, colNo, x, y):
         "Draw a label for a given item in the list."
@@ -256,12 +276,14 @@ class LinePlot(AbstractLineChart):
 
         labelFmt = self.lineLabelFormat
 
-        P = list(range(len(self._positions)))
-        if self.reversePlotOrder: P.reverse()
+        P = self._positions
         _inFill = getattr(self,'_inFill',None)
         lines = self.lines
         styleCount = len(lines)
-        if _inFill or [rowNo for rowNo in P if getattr(lines[rowNo%styleCount],'inFill',False)]:
+        if (_inFill or self._pairInFills or
+                [rowNo for rowNo in range(len(P))
+                        if getattr(lines[rowNo%styleCount],'inFill',False)]
+                ):
             inFillY = getattr(_inFill,'yValue',None)
             if inFillY is None:
                 inFillY = xA._y
@@ -272,8 +294,10 @@ class LinePlot(AbstractLineChart):
             inFillG = getattr(self,'_inFillG',g)
         lG = getattr(self,'_lineG',g)
         # Iterate over data rows.
-        for rowNo in P:
-            row = self._positions[rowNo]
+        R = range(len(P))
+        if self.reversePlotOrder: R = reversed(R)
+        for rowNo in R:
+            row = P[rowNo]
             styleRowNo = rowNo % styleCount
             rowStyle = lines[styleRowNo]
             strokeColor = getattr(rowStyle,'strokeColor',None)
@@ -290,12 +314,13 @@ class LinePlot(AbstractLineChart):
 
             # Iterate over data columns.
             if self.joinedLines:
-                points = []
-                for xy in row:
-                    points += [xy[0], xy[1]]
-                if inFill:
-                    fpoints = [inFillX0,inFillY] + points + [inFillX1,inFillY]
+                points = flatten(row)
+                if inFill or isinstance(row,FillPairedData):
                     filler = getattr(rowStyle, 'filler', None)
+                    if isinstance(row,FillPairedData):
+                        fpoints = points + flatten(reversed(P[row.other]))
+                    else:
+                        fpoints = [inFillX0,inFillY] + points + [inFillX1,inFillY]
                     if filler:
                         filler.fill(self,inFillG,rowNo,fillColor,fpoints)
                     else:
@@ -328,7 +353,7 @@ class LinePlot(AbstractLineChart):
                     else:
                         symbol = juSymbol
                         symColor = getattr(symbol,'fillColor',strokeColor)
-                    symbol = uSymbol2Symbol(symbol,xy[0],xy[1],symColor)
+                    symbol = uSymbol2Symbol(tpcGetItem(symbol,j),xy[0],xy[1],symColor)
                     if symbol:
                         if bubblePlot:
                             symbol.size = bubbleR*(drow[j][2]/bubbleMax)**0.5
@@ -346,8 +371,8 @@ class LinePlot(AbstractLineChart):
                         g.add(symbol)
 
             # Draw data labels.
-            for colNo in range(len(row)):
-                x1, y1 = row[colNo]
+            for colNo,datum in enumerate(row):
+                x1, y1 = datum
                 self.drawLabel(g, rowNo, colNo, x1, y1)
 
             shader = getattr(rowStyle, 'shader', None)
@@ -1174,3 +1199,13 @@ def sample2():
     drawing.add(lp)
 
     return drawing
+
+def sampleFillPairedData():
+    d = Drawing(400,200)
+    chart = SimpleTimeSeriesPlot()
+    d.add(chart)
+    chart.data = [FillPairedData(chart.data[0],1),chart.data[1]]
+    chart.lines[0].filler= Filler(fillColor=colors.toColor('#9f9f9f'),strokeWidth=0,strokeColor=None)
+    chart.lines[0].strokeColor = None
+    chart.lines[1].strokeColor = None
+    return d

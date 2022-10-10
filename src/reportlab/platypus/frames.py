@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/frames.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/frames.py
 
 __version__='3.5.14'
 
@@ -16,8 +16,7 @@ import logging
 logger = logging.getLogger('reportlab.platypus')
 
 _geomAttr=('x1', 'y1', 'width', 'height', 'leftPadding', 'bottomPadding', 'rightPadding', 'topPadding')
-from reportlab import rl_config, isPy3
-from reportlab.lib.rl_accel import fp_str
+from reportlab import rl_config
 _FUZZ=rl_config._FUZZ
 
 class ShowBoundaryValue:
@@ -26,12 +25,8 @@ class ShowBoundaryValue:
         self.width = width
         self.dashArray = dashArray
 
-    if isPy3:
-        def __bool__(self):
-            return self.color is not None and self.width>=0
-    else:
-        def __nonzero__(self):
-            return self.color is not None and self.width>=0
+    def __bool__(self):
+        return self.color is not None and self.width>=0
 
 
 class Frame:
@@ -266,10 +261,10 @@ class Frame:
         da = None
         if ss:
             c = toColor(sb,-1)
-            ss = c is not -1
+            ss = c != -1
         elif isinstance(sb,ShowBoundaryValue) and sb:
             c = toColor(sb.color,-1)
-            ss = c is not -1
+            ss = c != -1
             if ss:
                 w = sb.width
                 da = sb.dashArray

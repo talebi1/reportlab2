@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/tools/pythonpoint/styles/modern.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/tools/pythonpoint/styles/modern.py
 __version__='3.3.0'
 # style_modern.py
 __doc__="""This is an example style sheet.  You can create your own, and
@@ -20,7 +20,7 @@ A style sheet MUST define a style called 'Normal'.
 """
 
 from reportlab.lib import styles
-from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT, TA_JUSTIFY
+from reportlab.lib.enums import TA_CENTER
 
 def getParagraphStyles():
     """Returns a dictionary of styles based on Helvetica"""

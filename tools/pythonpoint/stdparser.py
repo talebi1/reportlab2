@@ -7,9 +7,8 @@ The parser has a getPresentation method; it is called from
 pythonpoint.py.
 """
 
-import string, imp, sys, os, copy
-from reportlab.lib.utils import isSeq, uniChr, isPy3
-from reportlab.lib import colors
+import imp, sys, os, copy
+from reportlab.lib.utils import isSeq
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
 from reportlab.lib.utils import recursiveImport
 from reportlab.platypus.paraparser import HTMLParser, known_entities
@@ -214,11 +213,6 @@ class PPMLParser(HTMLParser):
         self._curSubject = None
         self.fx = 1
         HTMLParser.__init__(self)
-        if not isPy3:
-            try:
-                self.parser.returnUnicode = False
-            except:
-                pass
 
     def _arg(self,tag,args,name):
         "What's this for???"
@@ -816,7 +810,7 @@ class PPMLParser(HTMLParser):
         except ValueError:
             self.unknown_charref(name)
             return
-        self.handle_data(uniChr(n).encode('utf8'))
+        self.handle_data(chr(n).encode('utf8'))
 
     #HTMLParser interface
     def handle_starttag(self, tag, attrs):
@@ -855,7 +849,7 @@ class PPMLParser(HTMLParser):
     def handle_entityref(self, name):
         "Handles a named entity.  "
         try:
-            v = uniChr(known_entities[name])
+            v = chr(known_entities[name])
         except:
             v = u'&amp;%s;' % name
         self.handle_data(v)

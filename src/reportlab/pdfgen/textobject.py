@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/pdfgen/textobject.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/pdfgen/textobject.py
 __version__='3.3.0'
 __doc__="""
 PDFTextObject is an efficient way to add text to a Canvas. Do not
@@ -9,9 +9,7 @@ instantiate directly, obtain one from the Canvas instead.
 Progress Reports:
 8.83, 2000-01-13, gmcm: created from pdfgen.py
 """
-import string
-from types import *
-from reportlab.lib.colors import Color, CMYKColor, CMYKColorSep, toColor, black, white, _CMYK_black, _CMYK_white
+from reportlab.lib.colors import Color, CMYKColor, CMYKColorSep, toColor
 from reportlab.lib.utils import isBytes, isStr, asUnicode
 from reportlab.lib.rl_accel import fp_str
 from reportlab.pdfbase import pdfmetrics

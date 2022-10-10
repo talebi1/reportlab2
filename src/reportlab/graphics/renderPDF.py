@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/renderPDF.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/graphics/renderPDF.py
 # renderPDF - draws Drawings onto a canvas
 
 __version__='3.3.0'
@@ -15,12 +15,13 @@ Execute the script to see some test drawings.
 changed
 """
 
+from io import BytesIO
+
 from reportlab.graphics.shapes import *
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.lib.utils import getBytesIO
-from reportlab import ascii, rl_config
-from reportlab.graphics.renderbase import Renderer, StateTracker, getStateDelta, renderScaledDrawing, STATE_DEFAULTS
+from reportlab import rl_config
+from reportlab.graphics.renderbase import Renderer, getStateDelta, renderScaledDrawing, STATE_DEFAULTS
 
 # the main entry point for users...
 def draw(drawing, canvas, x, y, showBoundary=rl_config._unset_):
@@ -155,7 +156,11 @@ class _PDFRenderer(Renderer):
                             )
 
     def drawString(self, stringObj):
-        if self._fill:
+        textRenderMode = getattr(stringObj,'textRenderMode',0)
+        needFill = textRenderMode in (0,2,4,6) 
+        needStroke = textRenderMode in (1,2,5,6) 
+
+        if (self._fill and needFill) or (self._stroke and needStroke):
             S = self._tracker.getState()
             text_anchor, x, y, text, enc = S['textAnchor'], stringObj.x,stringObj.y,stringObj.text, stringObj.encoding
             if not text_anchor in ['start','inherited']:
@@ -169,9 +174,7 @@ class _PDFRenderer(Renderer):
                     x -= numericXShift(text_anchor,text,textLen,font,font_size,enc)
                 else:
                     raise ValueError('bad value for textAnchor '+str(text_anchor))
-            t = self._canvas.beginText(x,y)
-            t.textLine(text)
-            self._canvas.drawText(t)
+            self._canvas.drawString(x, y, text, mode=textRenderMode or None)
 
     def drawPath(self, path):
         from reportlab.graphics.shapes import _renderPath
@@ -320,7 +323,7 @@ def drawToFile(d, fn, msg="", showBoundary=rl_config._unset_, autoSize=1, canvas
 
 def drawToString(d, msg="", showBoundary=rl_config._unset_,autoSize=1,canvasKwds={}):
     "Returns a PDF as a string in memory, without touching the disk"
-    s = getBytesIO()
+    s = BytesIO()
     drawToFile(d, s, msg=msg, showBoundary=showBoundary,autoSize=autoSize, canvasKwds=canvasKwds)
     return s.getvalue()
 
@@ -349,8 +352,9 @@ def test(outDir='pdfout',shout=False):
     drawings = []
     for funcname in dir(testshapes):
         if funcname[0:10] == 'getDrawing':
-            drawing = eval('testshapes.' + funcname + '()')  #execute it
-            docstring = eval('testshapes.' + funcname + '.__doc__')
+            func = getattr(testshapes,funcname)
+            drawing = func()  #execute it
+            docstring = getattr(func,'__doc__','')
             drawings.append((drawing, docstring))
 
     #print in a loop, with their doc strings
@@ -380,32 +384,6 @@ def test(outDir='pdfout',shout=False):
     c.save()
     if shout or verbose>2:
         print('saved %s' % ascii(fn))
-
-##def testFlowable():
-##    """Makes a platypus document"""
-##    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-##    from reportlab.lib.styles import getSampleStyleSheet
-##    styles = getSampleStyleSheet()
-##    styNormal = styles['Normal']
-##
-##    doc = SimpleDocTemplate('test_flowable.pdf')
-##    story = []
-##    story.append(Paragraph("This sees is a drawing can work as a flowable", styNormal))
-##
-##    import testdrawings
-##    drawings = []
-##
-##    for funcname in dir(testdrawings):
-##        if funcname[0:10] == 'getDrawing':
-##            drawing = eval('testdrawings.' + funcname + '()')  #execute it
-##            docstring = eval('testdrawings.' + funcname + '.__doc__')
-##            story.append(Paragraph(docstring, styNormal))
-##            story.append(Spacer(18,18))
-##            story.append(drawing)
-##            story.append(Spacer(36,36))
-##
-##    doc.build(story)
-##    print 'saves test_flowable.pdf'
 
 if __name__=='__main__':
     test(shout=True)

@@ -7,6 +7,7 @@ from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, p
 setOutDir(__name__)
 import sys, os, unittest
 from operator import truth
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth, registerFont, registerFontFamily
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus.paraparser import ParaParser
@@ -14,7 +15,7 @@ from reportlab.platypus.flowables import Flowable, DocAssert
 from reportlab.lib.colors import Color
 from reportlab.lib.units import cm
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
-from reportlab.lib.utils import _className, asBytes, asUnicode
+from reportlab.lib.utils import _className, asBytes, asUnicode, asNative
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus.xpreformatted import XPreformatted
 from reportlab.platypus.frames import Frame, ShowBoundaryValue
@@ -23,7 +24,7 @@ from reportlab.platypus import tableofcontents
 from reportlab.platypus.tableofcontents import TableOfContents
 from reportlab.platypus.tables import TableStyle, Table
 from reportlab.platypus.paragraph import Paragraph, _getFragWords, _splitWord, _fragWordSplitRep, ABag, pyphen
-from reportlab.rl_config import rtlSupport
+from reportlab.rl_config import rtlSupport, trustedHosts, trustedSchemes
 
 def myMainPageFrame(canvas, doc):
     "The page frame used for all PDF documents."
@@ -108,7 +109,6 @@ class ParagraphCorners(unittest.TestCase):
 
     def test3(self):
         '''compare CJK splitting in some edge cases'''
-        from reportlab.pdfgen.canvas import Canvas
         from reportlab.platypus.paragraph import Paragraph
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.pdfbase import pdfmetrics
@@ -139,12 +139,161 @@ class ParagraphCorners(unittest.TestCase):
         assert canv._code[ix:]==['q', '1 0 0 1 72 697.8898 cm', 'q', '0 0 0 rg', 'BT 1 0 0 1 0 57 Tm /F2 15 Tf 18 TL (ABCD) Tj T* (EFGH) Tj T* (IJKL]) Tj T* (N) Tj T* ET', 'Q', 'Q', 'q', '1 0 0 1 72 615.8898 cm', 'q', 'BT 1 0 0 1 0 57 Tm 18 TL /F2 15 Tf 0 0 0 rg (AB) Tj 1 0 0 rg (C) Tj 0 0 0 rg (D) Tj T* (EFGH) Tj T* (IJKL]) Tj T* (N) Tj T* ET', 'Q', 'Q', 'q', '1 0 0 1 72 353.8898 cm', 'q', '0 0 0 rg', 'BT 1 0 0 1 0 237 Tm /F2 15 Tf 18 TL (A) Tj T* (B) Tj T* (C) Tj T* (D) Tj T* (E) Tj T* (F) Tj T* (G) Tj T* (H) Tj T* (I) Tj T* (J) Tj T* (K) Tj T* (L) Tj T* (]) Tj T* (N) Tj T* ET', 'Q', 'Q', 'q', '1 0 0 1 72 91.88976 cm', 'q', 'BT 1 0 0 1 0 237 Tm 18 TL /F2 15 Tf 0 0 0 rg (A) Tj T* (B) Tj T* 1 0 0 rg (C) Tj T* 0 0 0 rg (D) Tj T* (E) Tj T* (F) Tj T* (G) Tj T* (H) Tj T* (I) Tj T* (J) Tj T* (K) Tj T* (L) Tj T* (]) Tj T* (N) Tj T* ET', 'Q', 'Q']
         canv.showPage()
         canv.save()
+
+    def test4(self):
+        from reportlab.platypus.paragraph import _SHYIndexedStr, stringWidth, _SHYWord, ABag, _shyUnsplit
+        fontName = 'Helvetica'
+        fontSize = 10
+        f = ABag(fontName=fontName,fontSize=fontSize)
+        sW = lambda _: stringWidth(_,fontName,fontSize)
+        text = u'Super\xadcali\xadfragi\xadlistic\xadexpi\xadali\xaddocious'
+        u = _SHYIndexedStr(text)
+        self.assertEqual(u,u'Supercalifragilisticexpialidocious','_SHYIndexStr not as expected')
+        self.assertEqual(u._shyIndices,[5, 9, 14, 20, 24, 27], '_SHYIndexStr._shyIndices are wrong')
+        shyW = _SHYWord([sW(u),(f,u)])
+        hsw = shyW.shyphenate(shyW[0],50)
+        self.assertTrue(hsw,'shyphenate failed')
+        self.assertTrue(
+                hsw[0][0] == 45.01
+                and hsw[0][1][0].__dict__== ABag(fontName='Helvetica', fontSize=10).__dict__
+                and hsw[0][1][1]==u'Supercali-'
+                and hsw[0][1][1]._shyIndices==[5,9], 'left part of shyphenate split failed')
+        self.assertTrue(
+                hsw[1][0] == 101.69000000000001
+                and hsw[1][1][0].__dict__== ABag(fontName='Helvetica', fontSize=10).__dict__
+                and hsw[1][1][1]==u'fragilisticexpialidocious'
+                and hsw[1][1][1]._shyIndices== [5, 11, 15, 18], 'right part of shyphenate split failed')
+        uj = _shyUnsplit(hsw[0][1][1],hsw[1][1][1])
+        self.assertTrue(
+                uj == u
+                and uj._shyIndices==u._shyIndices, '_shyUnsplit failed')
+
+    def test5(self):
+        '''some soft hyphenation'''
+        from reportlab.pdfgen import canvas
+        from reportlab.platypus import Frame, ShowBoundaryValue, Paragraph
+        from reportlab.lib.styles import ParagraphStyle
+
+        pagesize = (80+20, 400)
+        c = canvas.Canvas(  outputfile('test_platypus_soft_hyphenation.pdf'), pagesize=pagesize)
+        f = Frame(10, 0, 68, 400,
+                showBoundary=ShowBoundaryValue(dashArray=(1,1)),
+                leftPadding=0,
+                rightPadding=0,
+                topPadding=0,
+                bottomPadding=0,
+                )
+        style = ParagraphStyle(
+            'normal', fontName='Helvetica', fontSize=12,
+            embeddedHyphenation=1, splitLongWords=0, hyphenationLang='en-GB')
+        shy = asNative(u'\xad')
+        text = shy.join(('Super','cali','fragi','listic','expi','ali','docious'))
+        f.addFromList([Paragraph(text, style)], c)
+        text = u'<span color="red">Super</span><span color="pink">&#173;cali&#173;</span>fragi&#173;listic&#173;expi&#173;ali&#173;docious'
+        f.addFromList([Paragraph(text, style)], c)
+        c.showPage()
+        c.save() 
+
+    def test_platypus_paragraphs_embedded2(self):
+        from hashlib import md5 as hashlib_md5
+
+        fontName = 'Helvetica'
+        fontSize = 10
+
+        texts = [asUnicode(text) for text
+                in  [
+                    b'UU\xc2\xadDIS\xc2\xadTU\xc2\xadSA\xc2\xadLA JA TAI\xc2\xadMIK\xc2\xadKO',
+                    b'NUO\xc2\xadRI KAS\xc2\xadVA\xc2\xadTUS\xc2\xadMET\xc2\xadSIK\xc2\xadK\xc3\x96',
+                    b'VART\xc2\xadTU\xc2\xadNUT KAS\xc2\xadVA\xc2\xadTUS\xc2\xadMET\xc2\xadSIK\xc2\xadK\xc3\x96',
+                    b'UU\xc2\xadDIS\xc2\xadTUS-KYP\xc2\xadS\xc3\x84 MET\xc2\xadSIK\xc2\xadK\xc3\x96',
+                    b'SIE\xc2\xadMEN- JA SUO-JUS\xc2\xadPUU-MET\xc2\xadSIK\xc2\xadK\xc3\x96',
+                    b'E\xc2\xadRI-I\xc2\xadK\xc3\x84\xc2\xadIS-RA\xc2\xadKEN\xc2\xadTEI\xc2\xadNEN MET\xc2\xadSIK\xc2\xadK\xc3\x96',
+                    ]
+                ]
+        maxWidth = stringWidth('VARTTUNUT KAS', fontName, fontSize)+0.5
+        span = lambda _t, _c: "<span color='%s'>%s</span>" % (_c, _t)
+
+        pagesize = (20+maxWidth, 800)
+        c = Canvas(outputfile('test_platypus_paragraphs_embedded2.pdf'), pagesize=pagesize)
+
+        expected = [
+                (163, b':\n\x16\x8c\xa9\x87\xf4C\xe0\xe6\xfd/\x07\xe7\xde8'),
+                (163, b'4\x98_\t\xd0\xde\x9a:8\xa7E\xfc\x13\xad\xfbk'),
+                (163, b'9m\xec\xdfX\xe4\x85\xe9tL,\xe5ob\x13w'),
+                (163, b"\xf39*6\x85\xd2\xf9`:<\xe8'\xa9\x8a\xec["),
+                (163, b'\x85\x07\x83\xee\x8d\x11Bp\xd0p\xaa\xcbp\x98\xf4\xb7'),
+                (163, b'\xf0"wp\x91vN\xc8<\xef\xe7\xc8s\xae\xf8\x10'),
+                ]
+        observed = []
+        for eh in 0, 1, 2:
+            for slw in 0, 1:
+                f = Frame(10, 10, maxWidth, 780,
+                        showBoundary=ShowBoundaryValue(dashArray=(1,1)),
+                        leftPadding=0,
+                        rightPadding=0,
+                        topPadding=0,
+                        bottomPadding=0,
+                        )
+                style = ParagraphStyle(
+                    'normal', fontName=fontName, fontSize=fontSize,
+                    embeddedHyphenation=eh, splitLongWords=slw,
+                    hyphenationLang=None)
+                f.addFromList([Paragraph('slw=%d eh=%d' % (slw,eh), style)], c)
+                for text in texts:
+                    f.addFromList([Paragraph(text, style)], c)
+                    mfText = text.split(u'\xad')
+                    mfText[0] = span(mfText[0],'red')
+                    if len(mfText)>1:
+                        mfText[1] = span(mfText[1],'pink')
+                        if len(mfText)>2:
+                            mfText[-1] = span(mfText[-1],'blue')
+                    mfText = u'&#173;'.join(mfText)
+                    f.addFromList([Paragraph(mfText, style)], c)
+                observed.append((len(c._code), hashlib_md5(b"".join((asBytes(b,"latin1") for b in c._code))).digest()))
+                c.showPage()
+        c.save() 
+        self.assertEqual(observed, expected)
+
+    def test_lele_img(self):
+        from reportlab.pdfgen.canvas import Canvas
+        from reportlab.platypus import Paragraph
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.rl_config import defaultPageSize
+        from reportlab.lib.units import cm
+        from reportlab.lib.testutils import testsFolder
+
+        styles = getSampleStyleSheet()
+        c = Canvas(outputfile('test_lele_img.pdf'), pagesize=defaultPageSize)
+        s = styles["Normal"]
+        t = '<img src="%s/pythonpowered.gif" valign="middle"/>' % testsFolder
+        p = Paragraph(t, s)
+        owh = p.wrap(cm,cm)
+        cx0 = len(c._code)
+        p.drawOn(c, cm, 2*cm)
+        xcode = ['q', '1 0 0 1 28.34646 56.69291 cm', 'q', 'q', '110 0 0 44 0 -16 cm', '/FormXob.00cb676cb2b2da8ec875fe2c13cf2496 Do', 'Q', 'BT 1 0 0 1 0 2 Tm 12 TL 110 0 Td /F1 10 Tf 12 TL  T* -110 0 Td ET', 'Q', 'Q']
+        xwh = (28.346456692913385, 12)
+        ocode = c._code[cx0:]
+        c.showPage()
+        c.save()
+        self.assertEqual((owh,ocode),(xwh,xcode),
+                "\n(owh,ocode)=%r\nfor test_lele_img.pdf doesn't match expected\n(xwh,xcode)=%r" %(
+                    (xwh,xcode),(owh,ocode)))
         
+DEJAVUSANS = ('DejaVuSans','DejaVuSans-Bold','DejaVuSans-Oblique','DejaVuSans-BoldOblique')
+def haveDejaVu():
+    from reportlab.pdfbase.ttfonts import TTFont
+    for x in DEJAVUSANS:
+        try:
+            TTFont(x,x+'.ttf')
+        except:
+            return False
+    return True
+
 class ParagraphSplitTestCase(unittest.TestCase):
     "Test multi-page splitting of paragraphs (eyeball-test)."
 
     def test0(self):
-        "This makes one long multi-page paragraph."
+        "ParagraphSplitTestCase.test0"
 
         # Build story.
         story = []
@@ -176,7 +325,7 @@ it's actually easy to do using platypus.
         doc.multiBuild(story)
 
     def test1(self):
-        "This makes one long multi-page paragraph."
+        "ParagraphSplitTestCase.test1"
 
         # Build story.
         story = []
@@ -249,6 +398,7 @@ providing the ultimate in ease of installation.</font>''',
                     imageSide='left',
                     )
                 )
+        story.append(Paragraph('Width 240 single frag',h3))
         story.append(ImageAndFlowables(
                         Image(gif,width=240,height=120),
                         Paragraph('''The concept of an integrated one box solution for advanced voice and
@@ -299,12 +449,62 @@ component delimits the traditional practice of grammarians.'''
         story.append(PageBreak())
         story.append(heading)
         story.append(ImageAndFlowables(Image(gif,width=66,height=81),[Paragraph(text,bt)],imageSide='left',imageRightPadding=10))
+
+        story.append(NextPageTemplate('special'))
+        story.append(PageBreak())
+        story.append(Paragraph('Width 240, multi-frag free hyphenation',h3))
+        story.append(ImageAndFlowables(
+                        Image(gif,width=240,height=120),
+                        Paragraph('''The concept of an <span color="red">integ</span><span color="green">rated</span> one box solution for advanced voice and
+data applications began with the introduction of the IMACS. The
+IMACS 200 carries on that tradition with an integrated solution
+<span color="pink">optimized</span> for smaller port size applications that the IMACS could not
+<span color="lightgreen">eco</span><span color="blue">nomically</span> address. An array of the most popular interfaces and
+features from the IMACS has been bundled into a small 2U chassis
+providing the ultimate in ease of installation.''',
+                        style=st,
+                        ),
+                    imageSide='left',
+                    )
+                )
+        story.append(PageBreak())
+        story.append(Paragraph('Width 240, multi-frag soft hyphenation',h3))
+        story.append(ImageAndFlowables(
+                        Image(gif,width=240,height=120),
+                        Paragraph(u'''The concept of an <span color="red">integ</span><span color="green">\xadrated</span> one box solution for advanced voice and
+data applica\xadtions began with the in\xadtroduction of the IMACS. The
+IMACS 200 carries on that tradition with an integrated solution
+<span color="pink">op\xadtimized</span> for smaller port size applications that the IMACS could not
+<span color="lightgreen">eco</span><span color="blue">\xadnomically</span> address. An array of the most popular interfaces and
+fea\xadtures from the IMACS has been bundled into a small 2U chassis
+providing the ultimate in ease of installation.''',
+                        style=st,
+                        ),
+                    imageSide='left',
+                    )
+                )
+        story.append(PageBreak())
+        story.append(Paragraph('Width 240, single-frag soft hyphenation',h3))
+        story.append(ImageAndFlowables(
+                        Image(gif,width=240,height=120),
+                        Paragraph(u'''The concept of an integ\xadrated one box solution for advanced voice and
+data applica\xadtions began with the in\xadtroduction of the IMACS. The
+IMACS 200 carries on that tradition with an integrated solution
+op\xadtimized for smaller port size applications that the IMACS could not
+eco\xadnomically address. An array of the most popular interfaces and
+fea\xadtures from the IMACS has been bundled into a small 2U chassis
+providing the ultimate in ease of installation.''',
+                        style=st,
+                        ),
+                    imageSide='left',
+                    )
+                )
         doc = MyDocTemplate(outputfile('test_platypus_imageandflowables.pdf'),showBoundary=1)
         doc.multiBuild(story)
 
     @unittest.skipUnless(rtlSupport,'s')
     def test1_RTL(self):
-        "This makes one long multi-page paragraph."
+        "ParagraphSplitTestCase.test_RTL"
         from reportlab.platypus.flowables import ImageAndFlowables, Image
         from reportlab.lib.testutils import testsFolder
         from test_paragraphs import getAFont
@@ -492,12 +692,197 @@ component delimits the traditional practice of grammarians.'''
         \xd7\x93\xd7\xa8\xd7\x9b\xd7\x94 \xd7\xa9\xd7\x99\xd7\xaa\xd7\x95\xd7\xa4\xd7\x99\xd7\xaa
         \xd7\x90\xd7\xaa\xd7\x94 \xd7\x93\xd7\xaa.'''
         gif = os.path.join(testsFolder,'pythonpowered.gif')
-        heading = Paragraph('\xd7\x96\xd7\x95\xd7\x94\xd7\x99 \xd7\x9b\xd7\x95\xd7\xaa\xd7\xa8\xd7\xaa',h3)
+        heading = Paragraph(b'\xd7\x96\xd7\x95\xd7\x94\xd7\x99 \xd7\x9b\xd7\x95\xd7\xaa\xd7\xa8\xd7\xaa',h3)
         story.append(ImageAndFlowables(Image(gif),[heading,Paragraph(text,bt)]))
-        heading = Paragraph('\xd7\x96\xd7\x95\xd7\x94\xd7\x99 \xd7\x9b\xd7\x95\xd7\xaa\xd7\xa8\xd7\xaa',h3)
+        heading = Paragraph(b'\xd7\x96\xd7\x95\xd7\x94\xd7\x99 \xd7\x9b\xd7\x95\xd7\xaa\xd7\xa8\xd7\xaa',h3)
         story.append(ImageAndFlowables(Image(gif),[heading,Paragraph(text1,bt)]))
         doc = MyDocTemplate(outputfile('test_platypus_imageandflowables_rtl.pdf'),showBoundary=1)
         doc.multiBuild(story)
+
+    @unittest.skipUnless(rtlSupport and haveDejaVu(),'s')
+    def test2_RTL(self):
+        '''example & bugfix contributed by Moshe Uminer < mosheduminer at gmail.com >'''
+        from reportlab.platypus import Paragraph, PageBreak
+        from reportlab.lib.enums import TA_JUSTIFY, TA_RIGHT, TA_CENTER, TA_LEFT
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.lib.pagesizes import LETTER
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.platypus.doctemplate import SimpleDocTemplate
+        from reportlab.lib.colors import toColor
+        pdfmetrics.registerFont(TTFont("DejaVuSans", "DejaVuSans.ttf"))
+
+        text = u'\u05e9\u05dc\u05d5\u05dd! \u05d6\u05d5 \u05ea\u05d4\u05d9\u05d4 \u05e4\u05e1\u05e7\u05d4 \u05e9\u05d4\u05e9\u05d5\u05e8\u05d4 \u05d4\u05d0\u05d7\u05e8\u05d5\u05e0\u05d4 \u05e9\u05dc\u05d4 \u05dc\u05d0 \u05ea\u05d5\u05e6\u05d3\u05e7 \u05db\u05d4\u05dc\u05db\u05d4.'
+        text = u' '.join((text,text))
+
+        doc = SimpleDocTemplate(
+            outputfile("test_platypus_paragraphs_rtl_2.pdf"),
+            pagesize=LETTER,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72,
+            )
+        styles = getSampleStyleSheet()
+        hebrew_j = ParagraphStyle(
+            parent=styles["Normal"],
+            name="NormalHebrew",
+            wordWrap="RTL",
+            alignment=TA_JUSTIFY,
+            fontName="DejaVuSans",
+            fontSize=14,
+            underlineWidth=0.5,
+            underlineColor=toColor('red'),
+            strikeWidth=0.4,
+            strikeColor=toColor('orange'),
+            )
+        latin = hebrew_j.clone('latin',alignment=TA_LEFT,wordWrap='LTR')
+        hebrew_r = hebrew_j.clone('nhr', alignment=TA_RIGHT)
+        hebrew_rd = hebrew_r.clone('nhrd', endDots='.')
+        hebrew_jd = hebrew_j.clone('nhjd', endDots='.')
+        hebrew_c = hebrew_j.clone('nhc', alignment=TA_CENTER)
+        hebrew_cd = hebrew_c.clone('nhc', endDots='.')
+
+        rtext = text.replace(u'\u05db\u05d4\u05dc\u05db\u05d4',u'<span color=red>\u05db\u05d4\u05dc\u05db\u05d4</span>')
+        _utext = u''.join((u'<u>',text,u'</u>'))
+        utext = u''.join(('<u color=green>',text,'</u>'))
+        stext = u''.join(('<strike>',text,'</strike>'))
+        urtext = u''.join(('<u color=blue>',rtext,'</u>'))
+        srtext = u''.join(('<strike color=magenta>',rtext,'</strike>'))
+        flowables = [
+                Paragraph('justified',latin),
+                Paragraph(text, hebrew_j),
+                Paragraph(_utext, hebrew_j), #single frag takes defaults
+                Paragraph(stext, hebrew_j), #single frag takes defaults
+                Paragraph(utext, hebrew_j),
+                Paragraph(rtext, hebrew_j),
+                Paragraph(urtext, hebrew_j),
+                Paragraph(srtext, hebrew_j),
+        
+                Paragraph('right',latin),
+                Paragraph(text, hebrew_r),
+                Paragraph(_utext, hebrew_r), #single frag takes defaults
+                Paragraph(stext, hebrew_r), #single frag takes defaults
+                Paragraph(utext, hebrew_r),
+                Paragraph(rtext, hebrew_r),
+                Paragraph(urtext, hebrew_r),
+                Paragraph(srtext, hebrew_r),
+
+                Paragraph('center',latin),
+                Paragraph(text, hebrew_c),
+                Paragraph(_utext, hebrew_c), #single frag takes defaults
+                Paragraph(stext, hebrew_c), #single frag takes defaults
+                Paragraph(utext, hebrew_c),
+                Paragraph(rtext, hebrew_c),
+                Paragraph(urtext, hebrew_c),
+                Paragraph(srtext, hebrew_c),
+
+                PageBreak(),
+                Paragraph('justified dots',latin),
+                Paragraph(text, hebrew_jd),
+                Paragraph(_utext, hebrew_jd), #single frag takes defaults
+                Paragraph(stext, hebrew_jd), #single frag takes defaults
+                Paragraph(utext, hebrew_jd),
+                Paragraph(rtext, hebrew_jd),
+                Paragraph(urtext, hebrew_jd),
+                Paragraph(srtext, hebrew_jd),
+        
+                Paragraph('right dots',latin),
+                Paragraph(text, hebrew_rd),
+                Paragraph(_utext, hebrew_rd), #single frag takes defaults
+                Paragraph(stext, hebrew_rd), #single frag takes defaults
+                Paragraph(utext, hebrew_rd),
+                Paragraph(rtext, hebrew_rd),
+                Paragraph(urtext, hebrew_rd),
+                Paragraph(srtext, hebrew_rd),
+
+                Paragraph('center dots',latin),
+                Paragraph(text, hebrew_cd),
+                Paragraph(_utext, hebrew_cd), #single frag takes defaults
+                Paragraph(stext, hebrew_cd), #single frag takes defaults
+                Paragraph(utext, hebrew_cd),
+                Paragraph(rtext, hebrew_cd),
+                Paragraph(urtext, hebrew_cd),
+                Paragraph(srtext, hebrew_cd),
+                ]
+        doc.build(flowables)
+
+    def test_splitJustBug(self):
+        """test that justified paragraphs with </br>last line split properly
+        bug reported by Niharika Singh <nsingh@shoobx.com>
+        """
+        measures = []
+        def _odW(canv,name,label):
+            measures.append((label,canv._curr_tx_info['cur_x']))
+        text = '''<para><onDraw name="_odW" label="start"/>First line<onDraw name="_odW" label="end"/><br/><onDraw name="_odW" label="start"/>Second line<onDraw name="_odW" label="end"/><br/><onDraw name="_odW" label="start"/>split here<onDraw name="_odW" label="end"/><br/><onDraw name="_odW" label="start"/>Third line should not be justified<onDraw name="_odW" label="end"/><br/></para>'''
+        normal = getSampleStyleSheet()['BodyText']
+        normal.fontName = "Helvetica"
+        normal.fontSize = 10
+        normal.leading = 12
+        normal.alignment = TA_JUSTIFY
+        canv = Canvas(outputfile('test_splitJustBug.pdf'))
+        canv._odW = _odW
+        W, H = canv._pagesize
+        aW = W-2*72
+        aH = H-2*72
+        x = 72
+        y = H-72
+        P = Paragraph(text,normal)
+        w,h = P.wrap(aW,aH)
+        P.drawOn(canv,x,y)
+        M0 = measures[:]
+        measures[:] = []
+        y -= h
+        aH -= h
+        P = Paragraph(text,normal)
+        w,h = P.wrap(W-2*72,H-2*72)
+        P1,P2 = P.split(aW,37)
+        w,h = P1.wrap(aW,37)
+        P1.drawOn(canv,x,y)
+        y -= h
+        aH -= h
+        w,h = P2.wrap(aW,aH)
+        P2.drawOn(canv,x,y)
+        y -= h
+        aH -= h
+        canv.save()
+        self.assertEqual(M0,measures,"difference detected in justified split Paragraph rendering")
+
+    def test_unicharCodeSafety(self):
+        """test a bug reported by ravi prakash giri <raviprakashgiri@gmail.com>"""
+        normal = getSampleStyleSheet()['BodyText']
+        self.assertRaises(Exception,Paragraph,
+                """<unichar code="open('/tmp/test.txt','w').write('Hello from unichar')"/>""",
+                normal)
+
+    @unittest.skipUnless(trustedHosts,'s')
+    def test_badUri0(self):
+        """test we catch bad hosts"""
+        normal = getSampleStyleSheet()['BodyText']
+        self.assertRaises(Exception,Paragraph,
+                """<img src='https://badhost.com'/>""",
+                normal)
+        self.assertRaises(Exception,Paragraph,
+                """<img src='https://127.0.0.1:5000'/>""",
+                normal)
+        self.assertRaises(Exception,Paragraph,
+                """<img src='https://www.reportlab.com:5000'/>""",
+                normal)
+
+    @unittest.skipUnless(trustedSchemes,'s')
+    def test_badUri1(self):
+        """test we catch bad schemes"""
+        normal = getSampleStyleSheet()['BodyText']
+        self.assertRaises(Exception,Paragraph,
+                """<img src='badscheme://badhost.com'/>""",
+                normal)
+        self.assertRaises(Exception,Paragraph,
+                """<img src='badscheme://127.0.0.1:5000'/>""",
+                normal)
+        self.assertRaises(Exception,Paragraph,
+                """<img src='myscheme://www.reportlab.com'/>""",
+                normal)
+
 
 class TwoFrameDocTemplate(BaseDocTemplate):
     "Define a simple document with two frames per page."
@@ -573,8 +958,8 @@ class FragmentTestCase(unittest.TestCase):
 
     def test2(self):
         '''test _splitWord'''
-        self.assertEqual(_splitWord(u'd\'op\u00e9ration',30,[30],0,'Helvetica',12),[u"d'op\xe9", u'ratio', u'n'])
-        self.assertEqual(_splitWord(b'd\'op\xc3\xa9ration',30,[30],0,'Helvetica',12),[u"d'op\xe9", u'ratio', u'n'])
+        self.assertEqual(_splitWord(u'd\'op\u00e9ration',30,[30],0,'Helvetica',12),[u'', u"d'op\xe9", u'ratio', u'n'])
+        self.assertEqual(_splitWord(b'd\'op\xc3\xa9ration',30,[30],0,'Helvetica',12),[u'', u"d'op\xe9", u'ratio', u'n'])
 
     def test3(self):
         '''test _fragWordSplitRep'''
@@ -639,7 +1024,6 @@ class FragmentTestCase(unittest.TestCase):
         bt.fontSize = 10
         bt.leading = 12
         bt.alignment = TA_JUSTIFY
-        from reportlab.pdfgen.canvas import Canvas
         canv = Canvas(outputfile('test_platypus_paragraphs_hyphenations.pdf'))
         x = 72
         y = canv._pagesize[1] - 72
@@ -736,6 +1120,109 @@ class FragmentTestCase(unittest.TestCase):
                     )
             w,h = p.wrap(aW,0x7fffffff)
             self.assertEqual(h,ex,'Russion hyphenation test failed for ex=%(ex)s template=%(template)r hymwl=%(hymwl)r h=%(h)s\ntext=%(t)r' % locals())
+
+    @unittest.skipUnless(pyphen,'s')
+    def test8(self):
+        """display splitting of hyphenated words"""
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.utils import isBytes
+        import hashlib
+        from reportlab.pdfgen.canvas import Canvas
+        from reportlab.platypus.paragraph import Paragraph
+        pW, pH = A4
+        canv = Canvas(outputfile('test_platypus_paragraphs_hysplit.pdf'),pagesize=(pW,pH))
+        text = u'Supercalifragilisticexpialidocious'
+        mtext = u'<span color="red">Super</span>califragilisticexpialidocious'
+        mtext1 = u'Supercalifragilisticexpiali<span color="green">docious</span>'
+        stext = u'Super\xadcali\xadfragi\xadlistic\xadexpi\xadali\xaddocious'
+        mstext = u'<span color="red">Super\xad</span>cali\xadfragi\xadlistic\xadexpi\xadali\xaddocious'
+        mstext1 = u'Super\xadcali\xadfragi\xadlistic\xadexpi\xadali\xad<span color="green">docious</span>'
+        text =   u'Supercalifragilisticexpialidocious'
+        mtext2 = 'converted to a <b>Python</b> <font name=Courier><nobr>string</nobr></font>.'
+        mtext3 = 'This one uses fonts with size "14pt" and also uses the em and strong tags: Here comes <font face="Helvetica" size="14pt">Helvetica 14</font> with <Strong>strong</Strong> <em>emphasis</em>.'
+        textF = 'Figure [seq template="%(Chapter)s-%(FigureNo+)s"/] - Multi-level templates'
+        mtextF = 'Figure &lt;seq template="%(Chapter)s-%(FigureNo+)s"/&gt; - Multi-level templates'
+        sty0=ParagraphStyle(
+                            name="base",
+                            fontName="Helvetica",
+                            leading=12,
+                            leftIndent=0,
+                            firstLineIndent=0,
+                            spaceBefore = 9.5,
+                            fontSize=10,
+                            hyphenationLang="en_GB",
+                            )
+        sty1=ParagraphStyle(
+                            name="base",
+                            fontName="Times-Roman",
+                            leading=12,
+                            leftIndent=0,
+                            firstLineIndent=0,
+                            spaceBefore = 9.5,
+                            fontSize=10,
+                            hyphenationLang="en_GB",
+                            )
+        styN =  ParagraphStyle('normal', hyphenationLang="en_GB")
+        styF=ParagraphStyle(
+                            name = 'styF',
+                            fontName='Courier',
+                            fontSize=8,
+                            leading=9.6,
+                            hyphenationLang="en_GB",
+                            )
+        def box(x, y, aW, h):
+            canv.saveState()
+            canv.setDash(1,1)
+            canv.setLineWidth(0.1)
+            canv.rect(x,y,aW,h)
+            canv.restoreState()
+
+        def doPara(P,x,y,aW, wc=1):
+            for _ in range(wc):
+                w,h = P.wrap(aW,900)
+            #print('w=%s h=%s' % (w,h))
+            y -= h
+            box(x, y, aW, h)
+            P.drawOn(canv, x, y)
+            return y
+
+        def doTest(msg, t,x,y,aW, st=None, split=True, wc=1):
+            if not st: st = sty0
+            canv.drawString(x+aW+5,y-12,msg) 
+            P = Paragraph(t,st)
+            y = doPara(P, x, y, aW, wc=wc) - 5
+            if split:
+                P = Paragraph(t,st)
+                S = P.split(aW, st.leading*2+0.1)
+                y = doPara(S[0], x, y, aW) - 5
+                y = doPara(S[1], x, y, aW) - 5
+            return y
+
+        aW = 55
+        x = 72
+        y = pH - 72
+
+        cp0 = len(canv._code)
+        y = doTest('Single Frag Free Hyphenation', text, x, y, aW) - 5
+        y = doTest('Single Frag Soft Hyphenation', stext, x, y, aW) - 5
+        y = doTest('Multi Frag Free Hyphenation', mtext, x, y, aW) - 5
+        y = doTest('Multi Frag Free Hyphenation 1', mtext1, x, y, aW) - 5
+        y = doTest('Multi Frag Free Hyphenation 2', mtext2, x, y, 77, st=sty1, split=False, wc=2) - 5
+        y = doTest('Multi Frag Free Hyphenation 3', mtext3, x, y, 439.27559055118115, st=styN, split=False, wc=1) - 5
+        y = doTest('Multi Frag Soft Hyphenation', mstext, x, y, aW) - 5
+        y = doTest('Multi Frag Soft Hyphenation 1', mstext1, x, y, aW) - 5
+        y = doTest('Single Frag Free F', textF, x, y, 158.13921259842525, st=styF, split=False, wc=3) - 5
+        y = doTest('Multi Frag Free F', mtextF, x, y, 158.13921259842525, st=styF, split=False, wc=3) - 5
+        c = '\n'.join(canv._code[cp0:])
+        if not isBytes(c):
+            c = c.encode('utf8')
+        h = hashlib.md5(c).hexdigest()
+        canv.showPage()
+        canv.save()
+        #xh = '32e0e490cc4a53c31bb19f1cc52debdd'
+        xh = 'eee06395aa68a727d58e688006c85d79'
+        self.assertEqual(xh, h, 'test8 code is no longer correct %s != expected %s' % (h,xh))
 
 class ULTestCase(unittest.TestCase):
     "Test underlining and overstriking of paragraphs."
@@ -969,17 +1456,6 @@ phonemic and <u>morphological</u> <strike>analysis</strike>.'''
         doc = MyDocTemplate(outputfile('test_platypus_paragraphs_autoleading.pdf'))
         doc.build(story)
 
-DEJAVUSANS = ('DejaVuSans','DejaVuSans-Bold','DejaVuSans-Oblique','DejaVuSans-BoldOblique')
-def haveDejaVu():
-    from reportlab.pdfbase.ttfonts import TTFont
-    for x in DEJAVUSANS:
-        try:
-            TTFont(x,x+'.ttf')
-        except:
-            return False
-    return True
-
-DEJAVUSANS = ('DejaVuSans','DejaVuSans-Bold','DejaVuSans-Oblique','DejaVuSans-BoldOblique')
 def alphaSortedItems(d):
     return (i[1] for i in sorted((j[0].lower(),j) for j in d.items()))
 
@@ -991,7 +1467,6 @@ def tentities(title, b, fn):
     from reportlab.platypus.tables import TableStyle, Table
     from reportlab.platypus.paragraph import Paragraph
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab import ascii
 
     for v in DEJAVUSANS:
         registerFont(TTFont(v,v+'.ttf'))
@@ -1003,7 +1478,7 @@ def tentities(title, b, fn):
     bt = getSampleStyleSheet()['BodyText']
     bt.fontName = 'DejaVuSans'
     doc = SimpleDocTemplate(fn)
-    story = [Paragraph('<b>%s</b>' % title,bt)]
+    story = [Paragraph('<b>%s</b>' % asNative(title),bt)]
     story.extend([Paragraph(bu('&amp;%s; = <span color="red">&%s;</span>' % (k,k)), bt) for k, v in alphaSortedItems(greeks)])
     doc.build(story)
 

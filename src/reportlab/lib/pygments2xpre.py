@@ -9,8 +9,8 @@ For a list of available lexers see http://pygments.org/docs/
 
 """
 __all__ = ('pygments2xpre',)
-from reportlab.lib.utils import isPy3, asBytes, getBytesIO, getStringIO, asUnicode, isUnicode
 import re
+from io import StringIO
 
 def _2xpre(s,styles):
     "Helper to transform Pygments HTML output to ReportLab markup"
@@ -34,13 +34,7 @@ def pygments2xpre(s, language="python"):
 
     from pygments.lexers import get_lexer_by_name
     rconv = lambda x: x
-    if isPy3:
-        out = getStringIO()
-    else:
-        if isUnicode(s):
-            s = asBytes(s)
-            rconv = asUnicode
-        out = getBytesIO()
+    out = StringIO()
 
     l = get_lexer_by_name(language)
     
@@ -54,7 +48,7 @@ def pygments2xpre(s, language="python"):
 def convertSourceFiles(filenames):
     "Helper function - makes minimal PDF document"
 
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, XPreformatted
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, XPreformatted
     from reportlab.lib.styles import getSampleStyleSheet
     styT=getSampleStyleSheet()["Title"]
     styC=getSampleStyleSheet()["Code"]

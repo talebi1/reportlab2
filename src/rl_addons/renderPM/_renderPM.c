@@ -1,8 +1,5 @@
 #define PY_SSIZE_T_CLEAN
 #include "Python.h"
-#if PY_MAJOR_VERSION >= 3
-#	define isPy3
-#endif
 
 #ifndef PyMem_New
 	/*Niki Spahiev <niki@vintech.bg> suggests this is required for 1.5.2*/
@@ -12,6 +9,7 @@
 #include "libart_lgpl/libart.h"
 #include "gt1/gt1-parset1.h"
 #include "gt1/gt1-misc.h"
+#define FILL_UNSET -1
 #define FILL_EVEN_ODD 0
 #define FILL_NON_ZERO 1
 
@@ -21,57 +19,56 @@
 #endif
 
 
-#define VERSION "3.02"
+#define VERSION "4.01"
 #define MODULENAME "_renderPM"
-#ifdef isPy3
-#	define PyInt_FromLong	PyLong_FromLong
-#	define staticforward static
-#	define statichere static
+#define PyInt_FromLong	PyLong_FromLong
+#define staticforward static
+#define statichere static
 PyObject *RLPy_FindMethod(PyMethodDef *ml, PyObject *self, const char* name){
 	for(;ml->ml_name!=NULL;ml++)
 		if(name[0]==ml->ml_name[0] && strcmp(name+1,ml->ml_name+1)==0) return PyCFunction_New(ml, self);
 	return NULL;
 	}
 #define Py_FindMethod RLPy_FindMethod
-#else
-#   include "bytesobject.h"
-#	ifndef PyVarObject_HEAD_INIT
-#		define PyVarObject_HEAD_INIT(type, size) \
-        	PyObject_HEAD_INIT(type) size,
-#	endif
-#	ifndef Py_TYPE
-#		define Py_TYPE(ob) (((PyObject*)(ob))->ob_type)
-#	endif
-#endif
-
+#define __STR(x) #x
+#define STRINGIFY(x) __STR(x)
 #ifndef LIBART_VERSION
-#	define LIBART_VERSION "?.?.?"
+#	define LIBART_VERSION ?.?.?
 #endif
 #ifdef	RENDERPM_FT
-#	define _FT_DOC "    ft_get_face(fontName) --> ft_face instance\n"
+#	define _FT_DOC "    _renderPM.ft_get_face(fontName) --> ft_face instance\n"
 #else
 #	define _FT_DOC ""
+#endif
+#ifdef MEMORY_DEBUG
+#	define _MDBG_DOC "    _renderPM.mtrace(int) start or stop the malloc tracing\n"
+#else
+#	define _MDBG_DOC ""
 #endif
 PyDoc_STRVAR(__DOC__,
 "Helper extension module for renderPM.\n\
 \n\
 Interface summary:\n\
 \n\
-	import _renderPM\n\
-	gstate(width,height[,depth=3,bg=0xffffff]) #create an initialised graphics state\n\
-	makeT1Font(fontName,pfbPath,names[,reader])	#make a T1 font\n\
-	delCache() #delete all T1 font info\n\
-	pil2pict(cols,rows,datastr,palette) return PICT version of im as bytes\n"
+    from reportlan.graphics import _renderPM\n\
+    _renderPM.gstate(width,height[,depth=3,bg=0xffffff]) create an \n\
+        initialised graphics state\n\
+    _renderPM.makeT1Font(fontName,pfbPath,names[,reader]) make a T1 font\n\
+    _renderPM.delCache() delete all T1 font info\n\
+    _renderPM.pil2pict(cols,rows,datastr,palette) return PICT version of\n\
+        im as bytes\n"
 _FT_DOC
+_MDBG_DOC
 "\n\
-	_libart_version	# base library version string\n\
-	_version		# module version string\n\
+    _renderPM._libart_version base library version string\n\
+    _renderPM._version module version string ie " VERSION "\n\
 ");
 
 #if PY_VERSION_HEX < 0x01060000
 #	define PyObject_DEL(op) PyMem_DEL((op))
 #endif
 
+#define VECSP 0.25
 
 typedef struct {
   int format;
@@ -327,6 +324,7 @@ typedef struct {
 	double		strokeOpacity;
 	gstateColor	fillColor;			/*fill color*/
 	int			fillMode;
+	int			textRenderMode;
 	double		fillOpacity;
 	double		fontSize;
 	double		fontEMSize;			/*for scaling to points*/
@@ -607,23 +605,49 @@ static double _vpath_area(ArtVpath *p)
 	return a;
 }
 
-static	PyObject* gstate_clipPathSet(gstateObject* self, PyObject* args)
-{
+static	void _gstate_clipPathSetOrAdd(gstateObject* self, int fillMode, int add, int endIt){
 	ArtVpath	*vpath;
 	ArtVpath	*trVpath;
-	int			fillMode = self->fillMode;
-
-	if(!PyArg_ParseTuple(args,"|i:clipPathSet",&fillMode)) return NULL;
-	gstate_pathEnd(self);
+	if (fillMode==FILL_UNSET) fillMode = self->fillMode;
+	if(endIt) gstate_pathEnd(self);
 	dump_path(self);
-	vpath = art_bez_path_to_vec(self->path, 0.25);
+	vpath = art_bez_path_to_vec(self->path, VECSP);
 	dump_vpath("after -->vec",vpath);
 	trVpath = art_vpath_affine_transform (vpath, self->ctm);
 	_vpath_area(trVpath);
-	if(self->clipSVP) art_svp_free(self->clipSVP);
-	self->clipSVP = art_svp_from_vpath(trVpath);
+	if (add) {
+		ArtSVP		*newSVP = art_svp_from_vpath(trVpath);
+		if(self->clipSVP) {
+			ArtSVP *oldSVP = self->clipSVP;
+			self->clipSVP = art_svp_union(oldSVP,newSVP);
+			art_svp_free(oldSVP);
+			art_svp_free(newSVP);
+			}
+		else{
+			self->clipSVP = newSVP;
+			}
+		}
+	else{
+		if(self->clipSVP) art_svp_free(self->clipSVP);
+		self->clipSVP = art_svp_from_vpath(trVpath);
+		}
 	art_free(trVpath);
 	art_free(vpath);
+}
+
+static	PyObject* gstate_clipPathSet(gstateObject* self, PyObject* args)
+{
+	int			fillMode = FILL_UNSET;
+	if(!PyArg_ParseTuple(args,"|i:clipPathSet",&fillMode)) return NULL;
+	_gstate_clipPathSetOrAdd(self, fillMode, 0, 1); /*fill add endIt*/
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+static	PyObject* gstate_clipPathAdd(gstateObject* self, PyObject* args)
+{
+	int			fillMode = FILL_UNSET;
+	if(!PyArg_ParseTuple(args,"|i:clipPathAdd",&fillMode)) return NULL;
+	_gstate_clipPathSetOrAdd(self, fillMode, 1, 1) /*fill add endIt*/;
 	Py_INCREF(Py_None);
 	return Py_None;
 }
@@ -634,30 +658,28 @@ static void _gstate_pathFill(gstateObject* self,int endIt, int vpReverse, int fi
 	if(self->fillColor.valid){
 		ArtVpath	*vpath, *trVpath, *tmp_vpath;
 		ArtSVP		*svp, *tmp_svp;
-		ArtWindRule	wrule;
 		pixBufT*	p;
 		double		a;
 		if(endIt) gstate_pathEnd(self);
 		dump_path(self);
-		vpath = art_bez_path_to_vec(self->path, 0.25);
+		vpath = art_bez_path_to_vec(self->path, VECSP);
 		if(0 && vpReverse) _vpath_reverse(vpath);
 		trVpath =  art_vpath_affine_transform(vpath, self->ctm);
 		a = _vpath_area(trVpath);
 		if(fabs(a)>1e-7){
 			/*fill only larger things*/
 			tmp_vpath =  art_vpath_perturb(trVpath);
-			trVpath =  art_vpath_perturb(tmp_vpath);
-			art_free(tmp_vpath);
+			art_free(trVpath);	/*free the original*/
+			trVpath =  tmp_vpath;
 			svp = art_svp_from_vpath(trVpath);
 			dump_svp("fill svp from vpath",svp);
-			if(fillMode==0){
+			if(fillMode==FILL_EVEN_ODD){
 				tmp_svp = art_svp_uncross(svp);
 				dump_svp("fill svp uncrossed",tmp_svp);
-				wrule = fillMode==FILL_EVEN_ODD ? ART_WIND_RULE_ODDEVEN : ART_WIND_RULE_NONZERO;
 				art_svp_free(svp);
-				svp = art_svp_rewind_uncrossed(tmp_svp,wrule);
+				svp = art_svp_rewind_uncrossed(tmp_svp,fillMode==FILL_EVEN_ODD ? ART_WIND_RULE_ODDEVEN : ART_WIND_RULE_NONZERO);
 				art_svp_free(tmp_svp);
-				}
+			}
 			if(self->clipSVP) {
 				tmp_svp = svp;
 				dump_svp("fill clip svp path",self->clipSVP);
@@ -692,23 +714,22 @@ static PyObject* gstate_pathFill(gstateObject* self, PyObject* args)
 {
 	int			fillMode = self->fillMode;
 	if(!PyArg_ParseTuple(args,"|i:pathFill",&fillMode)) return NULL;
-	_gstate_pathFill(self,1,0,fillMode);
+	_gstate_pathFill(self,1,0,fillMode); /*endIt vpReverse(ignored) fillMode*/
 	Py_INCREF(Py_None);
 	return Py_None;
 }
 
-static PyObject* gstate_pathStroke(gstateObject* self, PyObject* args)
+static void _gstate_pathStroke(gstateObject* self, int endIt)
 {
 	ArtVpath	*vpath=NULL, *trVpath;
 	ArtSVP*		svp=NULL;
 	ArtSVP*		tmp_svp=NULL;
 	pixBufT*	p;
 
-	if(!PyArg_ParseTuple(args,":pathStroke")) return NULL;
 	if(self->strokeColor.valid && self->strokeWidth>0){
-		gstate_pathEnd(self);
+		if(endIt) gstate_pathEnd(self);
 		dump_path(self);
-		vpath = art_bez_path_to_vec(self->path, 0.25);
+		vpath = art_bez_path_to_vec(self->path, VECSP);
 
 		if(self->dash.dash){
 			ArtVpath*	tvpath=vpath;
@@ -740,6 +761,12 @@ static PyObject* gstate_pathStroke(gstateObject* self, PyObject* args)
 		art_svp_free(svp);
 		art_free(vpath);
 		}
+}
+
+static PyObject* gstate_pathStroke(gstateObject* self, PyObject* args)
+{
+	if(!PyArg_ParseTuple(args,":pathStroke")) return NULL;
+	_gstate_pathStroke(self, 1);	/*endIt*/
 	Py_INCREF(Py_None);
 	return Py_None;
 }
@@ -837,7 +864,7 @@ static PyObject* gstate_drawString(gstateObject* self, PyObject* args)
 	A2DMX	orig, trans = {1,0,0,1,0,0}, scaleMat = {1,0,0,1,0,0};
 	double	scaleFactor, x, y, w;
 	char*	text;
-	int		c, i;
+	int		c, i, textRenderMode=self->textRenderMode;
 	Py_ssize_t	textlen;
 	ArtBpath	*saved_path, *path;
 	void	*font = self->font;
@@ -931,7 +958,13 @@ static PyObject* gstate_drawString(gstateObject* self, PyObject* args)
 
 		if(path){
 			self->path = path;
-			_gstate_pathFill(self,0,1,1);
+			if (textRenderMode==0 || textRenderMode==2 || textRenderMode==4 || textRenderMode==6)
+				_gstate_pathFill(self,0,1,FILL_NON_ZERO) /*endit vpReverse(ignored) fillMode*/;
+			if (textRenderMode==1 || textRenderMode==2 || textRenderMode==5 || textRenderMode==6)
+				_gstate_pathStroke(self,0);	/*endIt*/
+			if (textRenderMode>=4)
+				_gstate_clipPathSetOrAdd(self, -1, 1, 0);	/*fill add endIt*/
+
 #ifdef	RENDERPM_FT
 			if(!ft_font && path!=notdefPath)
 #endif
@@ -1024,7 +1057,7 @@ static PyObject* _get_gstateVPath(gstateObject *self)
 	int			i;
 
 	gstate_pathEnd(self);
-	v = vpath = art_bez_path_to_vec(self->path, 0.25);
+	v = vpath = art_bez_path_to_vec(self->path, VECSP);
 	while(v->code!=ART_END) v++;
 	P = PyTuple_New(v-vpath);
 	i = 0;
@@ -1180,7 +1213,10 @@ static PyObject* gstate_setFont(gstateObject* self, PyObject* args)
 	if(!PyArg_ParseTuple(args,"Od:setFont", &fontNameObj, &fontSize)) return NULL;
 	if(PyUnicode_Check(fontNameObj)){
 		b=PyUnicode_AsUTF8String(fontNameObj);
-		if(!b) goto err;
+		if(!b){
+			PyErr_SetString(PyExc_ValueError, "_renderPM.gstate_setFont: bytes conversion of fontName failed");
+			goto err;
+			}
 		fontName = PyBytes_AsString(b);
 		}
 	else{
@@ -1199,7 +1235,7 @@ static PyObject* gstate_setFont(gstateObject* self, PyObject* args)
 		fontEMSize = 1000.;
 		ft_font = 0;
 		}
-#ifdef	RENDERPM_FT
+#ifdef RENDERPM_FT
 	else{
 		f = (Gt1EncodedFont*)_ft_get_face(fontName);
 		fontEMSize = f ? ((FT_Face)f)->units_per_EM : 0;
@@ -1214,7 +1250,7 @@ static PyObject* gstate_setFont(gstateObject* self, PyObject* args)
 		self->fontNameObj = fontNameObj;
 		Py_INCREF(fontNameObj);
 		self->fontEMSize = fontEMSize;
-#ifdef	RENDERPM_FT
+#ifdef RENDERPM_FT
 		self->ft_font = ft_font;
 #endif
 		Py_INCREF(Py_None);
@@ -1288,11 +1324,7 @@ static PyObject* gstate__aapixbuf(gstateObject* self, PyObject* args)
 	ArtPixBuf	src;
 
 	src.n_channels = 3;
-#ifdef isPy3
-	#define AAPIXBUFFMT "ddddy#ii|i:_aapixbuf"
-#else
-	#define AAPIXBUFFMT "ddddt#ii|i:_aapixbuf"
-#endif
+#define AAPIXBUFFMT "ddddy#ii|i:_aapixbuf"
 
 	/*(dstX,dstY,dstW,dstH,src,srcW,srcH[,srcD[,aff]])*/
 	if(!PyArg_ParseTuple(args,AAPIXBUFFMT,
@@ -1501,6 +1533,7 @@ static PyObject* _get_gstateFontName(gstateObject *self)
 static struct PyMethodDef gstate_methods[] = {
 	{"clipPathClear", (PyCFunction)gstate_clipPathClear, METH_VARARGS, "clipPathClear()"},
 	{"clipPathSet", (PyCFunction)gstate_clipPathSet, METH_VARARGS, "clipPathSet([fillMode])"},
+	{"clipPathAdd", (PyCFunction)gstate_clipPathAdd, METH_VARARGS, "clipPathAdd([fillMode])"},
 	{"curveTo", (PyCFunction)gstate_curveTo, METH_VARARGS, "curveTo(x1,y1,x2,y2,x3,y3)"},
 	{"drawString", (PyCFunction)gstate_drawString, METH_VARARGS, "drawString(x,y,text)"},
 	{"lineTo", (PyCFunction)gstate_lineTo, METH_VARARGS, "lineTo(x,y)"},
@@ -1541,6 +1574,7 @@ static PyObject* gstate_getattr(gstateObject *self, char *name)
 	else if(!strcmp(name,"fontName")) return _get_gstateFontName(self);
 	else if(!strcmp(name,"fontNameI")) return _get_gstateFontNameI(self);
 	else if(!strcmp(name,"dashArray")) return _get_gstateDashArray(self);
+	else if(!strcmp(name,"textRenderMode")) return PyInt_FromLong(self->textRenderMode);
 	else if(!strcmp(name,"pixBuf")){
 		pixBufT* p = self->pixBuf;
 		int	nw = p->rowstride;
@@ -1565,7 +1599,7 @@ static PyObject* gstate_getattr(gstateObject *self, char *name)
 
 static int gstate_setattr(gstateObject *self, char *name, PyObject* value)
 {
-	int	i;
+	int	i, tmp;
 #ifdef	ROBIN_DEBUG
 	printf("setattr(%s)\n", name);
 #endif
@@ -1579,6 +1613,16 @@ static int gstate_setattr(gstateObject *self, char *name, PyObject* value)
 	else if(!strcmp(name,"strokeOpacity")) i = PyArg_Parse(value,"d",&self->strokeOpacity);
 	else if(!strcmp(name,"fillOpacity")) i = PyArg_Parse(value,"d",&self->fillOpacity);
 	else if(!strcmp(name,"dashArray")) i = _set_gstateDashArray(value,self);
+	else if(!strcmp(name,"textRenderMode")) i = PyArg_Parse(value,"i",&self->textRenderMode);
+	else if(!strcmp(name,"fontSize")) {
+		i = PyArg_Parse(value,"i",&tmp);
+		if(!i) {
+			if(tmp<0) {
+				i = -1;
+				PyErr_SetString(PyExc_ValueError, name);
+				}
+			}
+		}
 	else {
 		PyErr_SetString(PyExc_AttributeError, name);
 		i = 0;
@@ -1611,6 +1655,7 @@ static	void gstateFree(gstateObject* self)
 gstates have the following methods\n\
  clipPathClear() clear clipPath\n\
  clipPathSet([fillMode]) move current path into clipPath\n\
+ clipPathAdd([fillMode]) add current path into clipPath\n\
  curveTo(x1,y1,x2,y2,x3,y3)  #add a curveTo type segment\n\
  drawString(x,y,text)\n\
  moveTo(x,y) start a segment\n\
@@ -1631,6 +1676,7 @@ ctm			6vec float transformation matrix\n\
 strokeColor 32bit stroke colour\n\
 fillColor	32bit fill colour\n\
 fillMode	int fill rule\n\
+textRenderMode	int controls filling and stroking (follows pdf values)\n\
 lineCap		int\n\
 lineJoin	int\n\
 hasClipPath readonly int\n\
@@ -1730,6 +1776,7 @@ static	gstateObject* gstate(PyObject* module, PyObject* args, PyObject* keywds)
 			self->strokeColor.valid = self->fillColor.valid = 0;
 			self->lineCap = self->lineJoin = 0;
 			self->fillMode = FILL_NON_ZERO;	/*our default for renderPM differed from PDF/PS*/
+			self->textRenderMode = 0;
 			self->strokeOpacity = self->strokeWidth = self->fillOpacity = 1.0;
 			self->pathLen = 0;
 			self->pathMax = m;
@@ -1848,6 +1895,22 @@ static PyObject* delCache(PyObject* self, PyObject* args)
 	Py_INCREF(Py_None);
 	return Py_None;
 }
+#ifdef MEMORY_DEBUG
+#include <mcheck.h>
+static PyObject* _py_mtrace(PyObject* self, PyObject* args)
+{
+	int startStop;
+	if(!PyArg_ParseTuple(args,"i:mtrace",&startStop)) return NULL;
+	if (startStop) {
+		mtrace();
+		}
+	else {
+		muntrace();
+		}
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+#endif
 
 #define HEADER_SIZE		512
 
@@ -2089,7 +2152,7 @@ static PyObject* pil2pict(PyObject* self, PyObject* args)
 
 
 static struct PyMethodDef _methods[] = {
-	{"gstate", (PyCFunction)gstate, METH_VARARGS|METH_KEYWORDS, "gstate(width,height[,depth=3][,bg=0xffffff]) create an initialised graphics state"},
+	{"gstate", (PyCFunction)gstate, METH_VARARGS|METH_KEYWORDS, "gstate(width,height[,depth=3][,bg=0xffffff]) create an\n        initialised graphics state"},
 	{"makeT1Font", (PyCFunction)makeT1Font, METH_VARARGS|METH_KEYWORDS, "makeT1Font(fontName,pfbPath,names)"},
 	{"delCache", (PyCFunction)delCache, METH_VARARGS, "delCache()"},
 	{"pil2pict", (PyCFunction)pil2pict, METH_VARARGS, "pil2pict(cols,rows,datastr,palette) return PICT version of im as bytes"},
@@ -2097,6 +2160,9 @@ static struct PyMethodDef _methods[] = {
     {"ft_get_face", (PyCFunction)ft_get_face, METH_VARARGS|METH_KEYWORDS,"ft_get_face(fontName) --> ft_face instance"},
 	{"parse_utf8", (PyCFunction)parse_utf8, METH_VARARGS, "parse_utf8(utf8_string) return UCS list"},
 #endif /*ifdef	RENDERPM_FT*/
+#ifdef MEMORY_DEBUG
+    {"mtrace", (PyCFunction)_py_mtrace, METH_VARARGS|METH_KEYWORDS,"mtrace(startStop) start or stop malloc tracing"},
+#endif /*MEMORY_DEBUG*/
 	{NULL,	NULL}			/*sentinel*/
 	};
 
@@ -2105,7 +2171,6 @@ extern void (*libart_set_DYNAMIC_BIGENDIAN(void));
 #endif
 
 /*Initialization function for the module*/
-#ifdef isPy3
 static struct PyModuleDef moduleDef = {
 	PyModuleDef_HEAD_INIT,
 	MODULENAME,
@@ -2119,15 +2184,6 @@ static struct PyModuleDef moduleDef = {
 	};
 
 PyMODINIT_FUNC PyInit__renderPM(void)
-#define OK_RET m
-#define ERR_RET NULL
-#define CREATE_MODULE() PyModule_Create(&moduleDef)
-#else
-void init_renderPM(void)
-#define OK_RET
-#define ERR_RET
-#define CREATE_MODULE() Py_InitModule(MODULENAME, _methods)
-#endif
 {
 	PyObject *m=NULL, *obj=NULL;
 
@@ -2138,7 +2194,7 @@ void init_renderPM(void)
 #endif
 
 	/* Create the module and add the functions */
-	m = CREATE_MODULE();
+	m = PyModule_Create(&moduleDef);
     if(!m)goto err;
 
 	/* Add some symbolic constants to the module */
@@ -2146,7 +2202,7 @@ void init_renderPM(void)
 	if(!obj)goto err;
 	PyModule_AddObject(m, "_version", obj);
 
-	obj = PyUnicode_FromString(LIBART_VERSION);
+	obj = PyUnicode_FromString(STRINGIFY(LIBART_VERSION));
 	if(!obj)goto err;
 	PyModule_AddObject(m, "_libart_version", obj);
 
@@ -2154,17 +2210,12 @@ void init_renderPM(void)
 	obj = PyUnicode_FromString(__FILE__);
 	if(!obj)goto err;
 	PyModule_AddObject(m, "__file__", obj);
-#ifndef isPy3
-	obj = PyUnicode_FromString(__DOC__);
-	if(!obj)goto err;
-	PyModule_AddObject(m, "__doc__", obj);/*add in the docstring*/
-#endif
 #ifdef DYNAMIC_ENDIANNESS
 	libart_set_DYNAMIC_BIGENDIAN();
 #endif
-	return OK_RET;
+	return m;
 err:
 	Py_XDECREF(obj);
 	Py_XDECREF(m);
-	return ERR_RET;
+	return NULL;
 }

@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/docs/userguide/ch5_paragraphs.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/docs/userguide/ch5_paragraphs.py
 from tools.docco.rl_doc_utils import *
 
 #begin chapter oon paragraphs
@@ -185,7 +185,7 @@ The default color of the text can be set with $textColor$ and the paragraph back
 colour can be set with $backColor$. The paragraph's border properties may be changed using
 $borderWidth$, $borderPadding$, $borderColor$ and $borderRadius$.""")
 
-disc("""The $textTransform$ attribute can be <b><i>None</i></b>, <i>'upper'</i> or <i>'lower'</i> to get the obvious result.""")
+disc("""The $textTransform$ attribute can be <b><i>None</i></b>, <i>'uppercase'</i> or <i>'lowercase'</i> to get the obvious result and <i>'capitalize'</i> to get initial letter capitalization.""")
 disc("""Attribute $endDots$ can be <b><i>None</i></b>, a string, or an object with attributes text and optional fontName, fontSize, textColor,  backColor
 and dy(y offset) to specify trailing matter on the last line of left/right justified paragraphs.""")
 disc("""The $splitLongWords$ attribute can be set to a false value to avoid splitting very long words.""")
@@ -344,6 +344,11 @@ This &lt;img/&gt; <img src="../images/testimg.gif" valign="-4"/> is aligned <b>-
 This &lt;img/&gt; <img src="../images/testimg.gif" valign="+4"/> is aligned <b>+4</b>.<br/><br/>
 This &lt;img/&gt; <img src="../images/testimg.gif" width="10"/> has width <b>10</b>.<br/><br/>
 </para>""","Inline images")
+disc("""The $src$ attribute can refer to a remote location eg $src="https://www.reportlab.com/images/logo.gif"$. By default we set $rl_config.trustedShemes$ to $['https','http', 'file', 'data', 'ftp']$ and
+$rl_config.trustedHosts=None$ the latter meaning no-restriction. You can modify these variables using one of the override files eg $reportlab_settings.py$ or $~/.reportlab_settings$. Or as comma separated strings in the 
+environment variables $RL_trustedSchemes$ &amp; $RL_trustedHosts$. Note that the $trustedHosts$ values may contain <b>glob</b> wild cars so <i>*.reportlab.com</i> will match the obvious domains.
+<br/><span color="red"><b>*NB*</b></span> use of <i>trustedHosts</i> and or <i>trustedSchemes</i> may not control behaviour &amp; actions when $URI$ patterns
+are detected by the viewer application.""")
 
 heading3("The $&lt;u&gt;$ &amp; $&lt;strike&gt;$ tags")
 disc("""These tags can be used to carry out explicit underlineing or strikethroughs. These tags have

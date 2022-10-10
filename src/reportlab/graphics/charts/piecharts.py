@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/charts/piecharts.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/graphics/charts/piecharts.py
 # experimental pie chart script.  Two types of pie - one is a monolithic
 #widget with all top-level properties, the other delegates most stuff to
 #a wedges collection whic lets you customize the group or every individual
@@ -13,13 +13,13 @@ This permits you to customize and pop out individual wedges;
 supports elliptical and circular pies.
 """
 
-import copy, functools
+import functools
 from math import sin, cos, pi
 
 from reportlab.lib import colors
-from reportlab.lib.validators import isColor, isNumber, isListOfNumbersOrNone,\
+from reportlab.lib.validators import isNumber, isListOfNumbersOrNone,\
                                     isListOfNumbers, isColorOrNone, isString,\
-                                    isListOfStringsOrNone, OneOf, SequenceOf,\
+                                    isListOfStringsOrNone, OneOf,\
                                     isBoolean, isListOfColors, isNumberOrNone,\
                                     isNoneOrListOfNoneOrStrings, isTextAnchor,\
                                     isNoneOrListOfNoneOrNumbers, isBoxAnchor,\
@@ -27,13 +27,12 @@ from reportlab.lib.validators import isColor, isNumber, isListOfNumbersOrNone,\
                                     isNumberInRange
 from reportlab.graphics.widgets.markers import uSymbol2Symbol, isSymbol
 from reportlab.lib.attrmap import *
-from reportlab.pdfgen.canvas import Canvas
 from reportlab.graphics.shapes import Group, Drawing, Ellipse, Wedge, String, STATE_DEFAULTS, ArcPath, Polygon, Rect, PolyLine, Line
-from reportlab.graphics.widgetbase import Widget, TypedPropertyCollection, PropHolder
+from reportlab.graphics.widgetbase import TypedPropertyCollection, PropHolder
 from reportlab.graphics.charts.areas import PlotArea
 from reportlab.graphics.charts.legends import _objStr
 from reportlab.graphics.charts.textlabels import Label
-from reportlab import xrange, ascii, cmp
+from reportlab import cmp
 
 _ANGLE2BOXANCHOR={0:'w', 45:'sw', 90:'s', 135:'se', 180:'e', 225:'ne', 270:'n', 315: 'nw', -45: 'nw'}
 _ANGLE2RBOXANCHOR={0:'e', 45:'ne', 90:'n', 135:'nw', 180:'w', 225:'sw', 270:'s', 315: 'se', -45: 'se'}
@@ -105,6 +104,10 @@ class WedgeProperties(PropHolder):
         label_pointer_piePad = AttrMapValue(isNumber,desc='pad between pointer label and pie'),
         swatchMarker = AttrMapValue(NoneOr(isSymbol), desc="None or makeMarker('Diamond') ...",advancedUsage=1),
         visible = AttrMapValue(isBoolean,'Set to false to skip displaying'),
+        shadingAmount = AttrMapValue(isNumberOrNone,desc='amount by which to shade fillColor'),
+        shadingAngle = AttrMapValue(isNumber,desc='shading changes at multiple of this angle (in degrees)'),
+        shadingDirection = AttrMapValue(OneOf('normal','anti'),desc="Whether shading is at start or end of wedge/sector"),
+        shadingKind = AttrMapValue(OneOf(None,'lighten','darken'),desc="use colors.Whiter or Blacker"),
         )
 
     def __init__(self):
@@ -139,6 +142,10 @@ class WedgeProperties(PropHolder):
         self.label_pointer_edgePad = 2
         self.label_pointer_piePad = 3
         self.visible = 1
+        self.shadingKind = None
+        self.shadingAmount = 0.5
+        self.shadingAngle = 2.0137
+        self.shadingDirection = 'normal'    #or 'anti'
 
 def _addWedgeLabel(self,text,angle,labelX,labelY,wedgeStyle,labelClass=WedgeLabel):
     # now draw a label
@@ -258,7 +265,7 @@ def findOverlapRun(B,wrap=1):
     '''determine a set of overlaps in bounding boxes B or return None'''
     n = len(B)
     if n>1:
-        for i in xrange(n-1):
+        for i in range(n-1):
             R = _findOverlapRun(B,i,wrap)
             if len(R)>1: return R
     return None
@@ -764,6 +771,7 @@ class Pie(AbstractPieChart):
 
         innerRadiusFraction = self.innerRadiusFraction
 
+
         for i,(a1,a2) in angles:
             if a2 is None: continue
             #if we didn't use %stylecount here we'd end up with the later wedges
@@ -802,8 +810,37 @@ class Pie(AbstractPieChart):
             theWedge.strokeLineJoin = wedgeStyle.strokeLineJoin
             theWedge.strokeLineCap = wedgeStyle.strokeLineCap
             theWedge.strokeMiterLimit = wedgeStyle.strokeMiterLimit
-            theWedge.strokeWidth = wedgeStyle.strokeWidth
             theWedge.strokeDashArray = wedgeStyle.strokeDashArray
+
+            shader = wedgeStyle.shadingKind
+            if shader:
+                nshades = aa / float(wedgeStyle.shadingAngle)
+                if nshades > 1:
+                    shader = colors.Whiter if shader=='lighten' else colors.Blacker
+                    nshades = 1+int(nshades)
+                    shadingAmount = 1-wedgeStyle.shadingAmount
+                    if wedgeStyle.shadingDirection=='normal':
+                        dsh = (1-shadingAmount)/float(nshades-1)
+                        shf1 = shadingAmount
+                    else:
+                        dsh = (shadingAmount-1)/float(nshades-1)
+                        shf1 = 1
+                    shda = (a2-a1)/float(nshades)
+                    shsc = wedgeStyle.fillColor
+                    theWedge.fillColor = None
+                    for ish in range(nshades):
+                        sha1 = a1 + ish*shda
+                        sha2 = a1 + (ish+1)*shda
+                        shc = shader(shsc,shf1 + dsh*ish)
+                        if innerRadiusFraction:
+                            shWedge = Wedge(cx, cy, xradius, sha1, sha2, yradius=yradius,
+                                    radius1=xradius*innerRadiusFraction,yradius1=yradius*innerRadiusFraction)
+                        else:
+                            shWedge = Wedge(cx, cy, xradius, sha1, sha2, yradius=yradius)
+                        shWedge.fillColor = shc
+                        shWedge.strokeColor = None
+                        shWedge.strokeWidth = 0
+                        g_add(shWedge)
 
             g_add(theWedge)
             if wr:
@@ -1053,7 +1090,7 @@ class LegendedPie(Pie):
         drawing.add(self.draw())
         return drawing
 
-from reportlab.graphics.charts.utils3d import _getShaded, _2rad, _360, _pi_2, _2pi, _180_pi
+from reportlab.graphics.charts.utils3d import _getShaded, _2rad, _360, _180_pi
 class Wedge3dProperties(PropHolder):
     """This holds descriptive information about the wedges in a pie chart.
 
@@ -1171,10 +1208,14 @@ class Pie3d(Pie):
 
     def __init__(self):
         Pie.__init__(self)
+        self.slices = TypedPropertyCollection(Wedge3dProperties)
+        self.slices[0].fillColor = colors.darkcyan
+        self.slices[1].fillColor = colors.blueviolet
+        self.slices[2].fillColor = colors.blue
+        self.slices[3].fillColor = colors.cyan
         self.slices[4].fillColor = colors.azure
         self.slices[5].fillColor = colors.crimson
         self.slices[6].fillColor = colors.darkviolet
-        self.slices = TypedPropertyCollection(Wedge3dProperties)
         self.xradius = self.yradius = None
         self.width = 300
         self.height = 200
@@ -1311,7 +1352,7 @@ class Pie3d(Pie):
 
         S.sort(key=_keyS3D)
         if checkLabelOverlap and L:
-            fixLabelOverlaps(L,sideLabels)
+            fixLabelOverlaps(L,self.sideLabels)
         for x in ([s[1] for s in S]+T+L):
             g.add(x)
         return g

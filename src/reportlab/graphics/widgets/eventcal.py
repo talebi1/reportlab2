@@ -1,5 +1,5 @@
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/graphics/widgets/eventcal.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/graphics/widgets/eventcal.py
 # Event Calendar widget
 # author: Andy Robinson
 
@@ -8,14 +8,9 @@ __doc__="""This file is a
 """
 
 from reportlab.lib import colors
-from reportlab.lib.validators import *
-from reportlab.lib.attrmap import *
-from reportlab.graphics.shapes import Line, Rect, Polygon, Drawing, Group, String, Circle, Wedge
+from reportlab.graphics.shapes import Rect, Drawing, Group, String
 from reportlab.graphics.charts.textlabels import Label
 from reportlab.graphics.widgetbase import Widget
-from reportlab.graphics import renderPDF
-
-
 
 
 class EventCalendar(Widget):

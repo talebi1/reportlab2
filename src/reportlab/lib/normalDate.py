@@ -23,11 +23,10 @@ _dayOfWeekName = _dayOfWeekName.split()
 _monthName = '''January February March April May June
                 July August September October November December'''
 _monthNameLower = _monthName.lower().split()
-_monthNameLower = _monthName.split()
+_monthName = _monthName.split()
 
-from reportlab import cmp
 import re, time, datetime
-from .utils import isPy3, isStr
+from .utils import isStr
 
 if hasattr(time,'struct_time'):
     _DateSeqTypes = (list,tuple,time.struct_time)
@@ -159,44 +158,35 @@ class NormalDate:
         """return a cloned instance of this normalDate"""
         return self.__class__(self.normalDate)
 
-    if not isPy3:
-        def __cmp__(self, target):
-            if target is None:
-                return 1
-            elif not hasattr(target, 'normalDate'):
-                return 1
-            else:
-                return cmp(self.normalDate, target.normalDate)
-    else:
-        def __lt__(self,other):
-            if not hasattr(other,'normalDate'):
-                return False
-            return self.normalDate < other.normalDate
+    def __lt__(self,other):
+        if not hasattr(other,'normalDate'):
+            return False
+        return self.normalDate < other.normalDate
 
-        def __le__(self,other):
-            if not hasattr(other,'normalDate'):
-                return False
-            return self.normalDate <= other.normalDate
+    def __le__(self,other):
+        if not hasattr(other,'normalDate'):
+            return False
+        return self.normalDate <= other.normalDate
 
-        def __eq__(self,other):
-            if not hasattr(other,'normalDate'):
-                return False
-            return self.normalDate == other.normalDate
+    def __eq__(self,other):
+        if not hasattr(other,'normalDate'):
+            return False
+        return self.normalDate == other.normalDate
 
-        def __ne__(self,other):
-            if not hasattr(other,'normalDate'):
-                return True
-            return self.normalDate != other.normalDate
+    def __ne__(self,other):
+        if not hasattr(other,'normalDate'):
+            return True
+        return self.normalDate != other.normalDate
 
-        def __ge__(self,other):
-            if not hasattr(other,'normalDate'):
-                return True
-            return self.normalDate >= other.normalDate
+    def __ge__(self,other):
+        if not hasattr(other,'normalDate'):
+            return True
+        return self.normalDate >= other.normalDate
 
-        def __gt__(self,other):
-            if not hasattr(other,'normalDate'):
-                return True
-            return self.normalDate > other.normalDate
+    def __gt__(self,other):
+        if not hasattr(other,'normalDate'):
+            return True
+        return self.normalDate > other.normalDate
 
     def day(self):
         """return the day as integer 1-31"""
@@ -206,13 +196,17 @@ class NormalDate:
         """return integer representing day of week, Mon=0, Tue=1, etc."""
         return dayOfWeek(*self.toTuple())
 
+    @property
+    def __day_of_week_name__(self):
+        return getattr(self,'_dayOfWeekName',_dayOfWeekName)
+
     def dayOfWeekAbbrev(self):
         """return day of week abbreviation for current date: Mon, Tue, etc."""
-        return _dayOfWeekName[self.dayOfWeek()][:3]
+        return self.__day_of_week_name__[self.dayOfWeek()][:3]
 
     def dayOfWeekName(self):
         """return day of week name for current date: Monday, Tuesday, etc."""
-        return _dayOfWeekName[self.dayOfWeek()]
+        return self.__day_of_week_name__[self.dayOfWeek()]
 
     def dayOfYear(self):
         """day of year"""
@@ -384,14 +378,18 @@ class NormalDate:
     def month(self):
         """returns month as integer 1-12"""
         return int(repr(self.normalDate)[-4:-2])
+    
+    @property
+    def __month_name__(self):
+        return getattr(self,'_monthName',_monthName)
 
     def monthAbbrev(self):
         """returns month as a 3-character abbreviation, i.e. Jan, Feb, etc."""
-        return _monthName[self.month() - 1][:3]
+        return self.__month_name__[self.month() - 1][:3]
 
     def monthName(self):
         """returns month name, i.e. January, February, etc."""
-        return _monthName[self.month() - 1]
+        return self.__month_name__[self.month() - 1]
 
     def normalize(self, scalar):
         """convert scalar to normalDate"""

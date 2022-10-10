@@ -8,6 +8,7 @@ from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, p
 if __name__=='__main__':
     setOutDir(__name__)
 import unittest
+from io import BytesIO
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.pdfdoc import PDFDocument, PDFError
@@ -17,11 +18,11 @@ from reportlab.pdfbase.ttfonts import TTFont, TTFontFace, TTFontFile, TTFOpenFil
                                       FF_SYMBOLIC, FF_NONSYMBOLIC, \
                                       calcChecksum, add32
 from reportlab import rl_config
-from reportlab.lib.utils import getBytesIO, isPy3, uniChr, int2Byte
+from reportlab.lib.utils import int2Byte
 
 def utf8(code):
     "Convert a given UCS character index into UTF-8"
-    return uniChr(code).encode('utf8')
+    return chr(code).encode('utf8')
 
 def _simple_subset_generation(fn,npages,alter=0,fonts=('Vera','VeraBI')):
     c = Canvas(outputfile(fn))
@@ -43,21 +44,20 @@ def show_all_glyphs(fn,fontName='Vera'):
     c.setFont('Helvetica', 20)
     c.drawString(72,c._pagesize[1]-30, 'Unicode TrueType Font Test %s' % fontName)
     from reportlab.pdfbase.pdfmetrics import _fonts
-    from reportlab.lib.utils import uniChr
     font = _fonts[fontName]
     doc = c._doc
-    kfunc = font.face.charToGlyph.keys if isPy3 else font.face.charToGlyph.iterkeys
-    for s in kfunc():
+    kfunc = font.face.charToGlyph.keys
+    for s in sorted(list(kfunc())):
         if s<0x10000:
-            font.splitString(uniChr(s),doc)
+            font.splitString(chr(s),doc)
     state = font.state[doc]
     cn = {}
     #print('len(assignments)=%d'%  len(state.assignments))
     nzero = 0
-    ifunc = state.assignments.items if isPy3 else state.assignments.iteritems
-    for code, n in ifunc():
+    ifunc = state.assignments.items
+    for code, n in sorted(list(ifunc())):
         if code==0: nzero += 1
-        cn[n] = uniChr(code)
+        cn[n] = chr(code)
     if nzero>1: print('%s there were %d zero codes' % (fontName,nzero))
 
 
@@ -76,7 +76,7 @@ def show_all_glyphs(fn,fontName='Vera'):
             if i%32 == 0:
                 y -= 12
                 x = 72
-            c.drawString(x,y,uniChr(code))
+            c.drawString(x,y,chr(code))
             x += 13
         y -= 18
 
@@ -128,10 +128,10 @@ class TTFontFileTestCase(NearTestCase):
     def testFontFileFailures(self):
         "Tests TTFontFile constructor error checks"
         self.assertRaises(TTFError, TTFontFile, "nonexistent file")
-        self.assertRaises(TTFError, TTFontFile, getBytesIO(b""))
-        self.assertRaises(TTFError, TTFontFile, getBytesIO(b"invalid signature"))
-        self.assertRaises(TTFError, TTFontFile, getBytesIO(b"OTTO - OpenType not supported yet"))
-        self.assertRaises(TTFError, TTFontFile, getBytesIO(b"\0\1\0\0"))
+        self.assertRaises(TTFError, TTFontFile, BytesIO(b""))
+        self.assertRaises(TTFError, TTFontFile, BytesIO(b"invalid signature"))
+        self.assertRaises(TTFError, TTFontFile, BytesIO(b"OTTO - OpenType not supported yet"))
+        self.assertRaises(TTFError, TTFontFile, BytesIO(b"\0\1\0\0"))
 
     def testFontFileReads(self):
         "Tests TTFontParset.read_xxx"
@@ -190,17 +190,17 @@ class TTFontFileTestCase(NearTestCase):
     def testFontFileChecksum(self):
         "Tests TTFontFile and TTF parsing code"
         F = TTFOpenFile("Vera.ttf")[1].read()
-        TTFontFile(getBytesIO(F), validate=1) # should not fail
+        TTFontFile(BytesIO(F), validate=1) # should not fail
         F1 = F[:12345] + b"\xFF" + F[12346:] # change one byte
-        self.assertRaises(TTFError, TTFontFile, getBytesIO(F1), validate=1)
+        self.assertRaises(TTFError, TTFontFile, BytesIO(F1), validate=1)
         F1 = F[:8] + b"\xFF" + F[9:] # change one byte
-        self.assertRaises(TTFError, TTFontFile, getBytesIO(F1), validate=1)
+        self.assertRaises(TTFError, TTFontFile, BytesIO(F1), validate=1)
 
     def testSubsetting(self):
         "Tests TTFontFile and TTF parsing code"
         ttf = TTFontFile("Vera.ttf")
         subset = ttf.makeSubset([0x41, 0x42])
-        subset = TTFontFile(getBytesIO(subset), 0)
+        subset = TTFontFile(BytesIO(subset), 0)
         for tag in ('cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'OS/2',
                     'post', 'cvt ', 'fpgm', 'glyf', 'loca', 'prep'):
             self.assertTrue(subset.get_table(tag))
@@ -226,7 +226,7 @@ class TTFontFileTestCase(NearTestCase):
         ttf.add("QUUX", b"123")
         ttf.add("head", b"12345678xxxx")
         stm = ttf.makeStream()
-        ttf = TTFontParser(getBytesIO(stm), 0)
+        ttf = TTFontParser(BytesIO(stm), 0)
         self.assertEqual(ttf.get_table("ABCD"), b"xyzzy")
         self.assertEqual(ttf.get_table("QUUX"), b"123")
 
@@ -271,7 +271,7 @@ class TTFontTestCase(NearTestCase):
         # Glyphless variation of vedaal's invisible font retrieved from
         # http://www.angelfire.com/pr/pgpf/if.html, which says:
         # 'Invisible font' is unrestricted freeware. Enjoy, Improve, Distribute freely
-        import io, zlib, base64
+        import zlib, base64
         font = """
         eJzdlk1sG0UUx/+zs3btNEmrUKpCPxikSqRS4jpfFURUagmkEQQoiRXgAl07Y3vL2mvt2ml8APXG
         hQPiUEGEVDhWVHyIC1REPSAhBOWA+BCgSoULUqsKcWhVBKjhzfPU+VCi3Flrdn7vzZv33ryZ3TUE
@@ -294,8 +294,8 @@ class TTFontTestCase(NearTestCase):
         w3R/aE28KsfY2J+RPNp+j+KaOoCey4h+Dd48b9O5G0v2K7j0AM6s+5WQ/E0wVoK+pA6/3bup7bJf
         CMGjwvxTsr74/f/F95m3TH9x8o0/TU//N+7/D/ScVcA=
         """.encode('latin1')
-        uncompressed = zlib.decompress(getattr(base64,'decodebytes' if isPy3 else 'decodestring')(font))
-        ttf = io.BytesIO(uncompressed)
+        uncompressed = zlib.decompress(base64.decodebytes(font))
+        ttf = BytesIO(uncompressed)
         setattr(ttf ,"name", "(invisible.ttf)")
         font = TTFont('invisible', ttf)
         for coord in font.face.bbox:
@@ -317,7 +317,7 @@ class TTFontTestCase(NearTestCase):
         self.assertEqual(font.splitString(text, doc), chunks)
 
         text = b"".join(utf8(i) for i in range(510, -1, -1))
-        revver = (lambda b: map(int2Byte,reversed(b))) if isPy3 else (lambda b: reversed(list(b)))
+        revver = lambda b: map(int2Byte,reversed(b))
         chunks = [(i[0],b"".join(revver(i[1]))) for i in reversed(chunks)]
         self.assertEqual(font.splitString(text, doc), chunks)
 

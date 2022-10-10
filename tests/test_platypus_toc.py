@@ -13,6 +13,7 @@ import sys, os
 from os.path import join, basename, splitext
 from math import sqrt
 import random
+from reportlab.rl_config import invariant as rl_invariant
 import unittest
 from reportlab.lib.units import inch, cm
 from reportlab.lib.pagesizes import A4
@@ -36,15 +37,19 @@ def myMainPageFrame(canvas, doc):
     canvas.rect(2.5*cm, 2.5*cm, 15*cm, 25*cm)
     canvas.setFont('Times-Roman', 12)
     pageNumber = canvas.getPageNumber()
-    canvas.drawString(10*cm, cm, str(pageNumber))
+    if doc.rLPN:
+        pns = 'page %d of %d' % (pageNumber,doc._lpn0)
+    else:
+        pns = str(pageNumber)
+    canvas.drawCentredString(10*cm, cm, pns)
 
     canvas.restoreState()
-
 
 class MyDocTemplate(BaseDocTemplate):
     "The document template used for all PDF documents."
 
     _invalidInitArgs = ('pageTemplates',)
+    rLPN = False    #record last page number
 
     def __init__(self, filename, **kw):
         frame1 = Frame(2.5*cm, 2.5*cm, 15*cm, 25*cm, id='F1')
@@ -52,7 +57,6 @@ class MyDocTemplate(BaseDocTemplate):
         BaseDocTemplate.__init__(self, filename, **kw)
         template = PageTemplate('normal', [frame1], myMainPageFrame)
         self.addPageTemplates(template)
-
 
     def afterFlowable(self, flowable):
         "Registers TOC entries."
@@ -74,6 +78,22 @@ class MyDocTemplate(BaseDocTemplate):
                 else:
                     self.notify('TOCEntry', (level, text, pageNum))
 
+    def beforeDocument(self):
+        if self.rLPN:
+            self._lpn0 = getattr(self,'_lpn',-100)
+            self._lpn = 0
+        super().beforeDocument()
+
+    def beforePage(self):
+        if self.rLPN:
+            self._lpn = self.canv.getPageNumber()
+        super().beforePage()
+
+    def _allSatisfied(self):
+        r = super()._allSatisfied()
+        if r and self.rLPN:
+            r = self._lpn0==self._lpn
+        return r
 
 def makeHeaderStyle(level, fontName='Times-Roman'):
     "Make a header style for different levels."
@@ -133,47 +153,49 @@ class TocTestCase(unittest.TestCase):
             3. Only entries of every second level has links
             ...
         """
+        def doTest(rLPN=False):
+            if rl_invariant: random.seed(2077179149)
+            maxLevels = 12
 
-        maxLevels = 12
+            # Create styles to be used for document headers
+            # on differnet levels.
+            headerLevelStyles = []
+            for i in range(maxLevels):
+                headerLevelStyles.append(makeHeaderStyle(i))
 
-        # Create styles to be used for document headers
-        # on differnet levels.
-        headerLevelStyles = []
-        for i in range(maxLevels):
-            headerLevelStyles.append(makeHeaderStyle(i))
+            # Create styles to be used for TOC entry lines
+            # for headers on differnet levels.
+            tocLevelStyles = []
+            d, e = tableofcontents.delta, tableofcontents.epsilon
+            for i in range(maxLevels):
+                tocLevelStyles.append(makeTocHeaderStyle(i, d, e))
 
-        # Create styles to be used for TOC entry lines
-        # for headers on differnet levels.
-        tocLevelStyles = []
-        d, e = tableofcontents.delta, tableofcontents.epsilon
-        for i in range(maxLevels):
-            tocLevelStyles.append(makeTocHeaderStyle(i, d, e))
+            # Build story.
+            story = []
+            styleSheet = getSampleStyleSheet()
+            bt = styleSheet['BodyText']
 
-        # Build story.
-        story = []
-        styleSheet = getSampleStyleSheet()
-        bt = styleSheet['BodyText']
+            description = '<font color=red>%s</font>' % self.test0.__doc__
+            story.append(XPreformatted(description, bt))
 
-        description = '<font color=red>%s</font>' % self.test0.__doc__
-        story.append(XPreformatted(description, bt))
+            toc = tableofcontents.TableOfContents(dotsMinLevel=1)
+            toc.levelStyles = tocLevelStyles
+            story.append(toc)
 
-        toc = tableofcontents.TableOfContents(dotsMinLevel=1)
-        toc.levelStyles = tocLevelStyles
-        story.append(toc)
+            for i in range(maxLevels):
+                story.append(Paragraph('HEADER, LEVEL %d' % i,
+                                       headerLevelStyles[i]))
+                #now put some body stuff in.
+                txt = xmlEscape(randomtext.randomText(randomtext.PYTHON, 5))
+                para = Paragraph(txt, makeBodyStyle())
+                story.append(para)
 
-        for i in range(maxLevels):
-            story.append(Paragraph('HEADER, LEVEL %d' % i,
-                                   headerLevelStyles[i]))
-            #now put some body stuff in.
-            txt = xmlEscape(randomtext.randomText(randomtext.PYTHON, 5))
-            para = Paragraph(txt, makeBodyStyle())
-            story.append(para)
-
-        path = outputfile('test_platypus_toc.pdf')
-        doc = MyDocTemplate(path)
-        doc.multiBuild(story)
-
-
+            path = outputfile('test_platypus_toc%s.pdf' % ('_page_x_of_y' if rLPN else ''))
+            doc = MyDocTemplate(path)
+            doc.rLPN = rLPN
+            doc.multiBuild(story)
+        doTest(False)
+        doTest(True)
 
     def test1(self):
         """This shows a table which would take more than one page,
@@ -181,7 +203,7 @@ class TocTestCase(unittest.TestCase):
         with the right headings to make it go faster.  We used
         a simple 100-chapter document with one level.
         """
-
+        if rl_invariant: random.seed(1216902530)
         chapters = 30   #goes over one page
         
         headerStyle = makeHeaderStyle(0)
@@ -220,7 +242,7 @@ class TocTestCase(unittest.TestCase):
         path = outputfile('test_platypus_toc_preload_1.pdf')
         doc = MyDocTemplate(path)
         passes = doc.multiBuild(story1)
-        self.assertEquals(passes, 3)
+        self.assertEqual(passes, 3)
 
         #try 2: now preload the TOC with the entries
 
@@ -239,7 +261,7 @@ class TocTestCase(unittest.TestCase):
         path = outputfile('test_platypus_toc_preload_2.pdf')
         doc = MyDocTemplate(path)
         passes = doc.multiBuild(story2)
-        self.assertEquals(passes, 2)
+        self.assertEqual(passes, 2)
 
 
 
@@ -277,10 +299,11 @@ class TocTestCase(unittest.TestCase):
         passes = doc.multiBuild(story3)
 
         # I can't get one pass yet'
-        #self.assertEquals(passes, 1)
+        #self.assertEqual(passes, 1)
         self.assertTrue(hasattr(doc,'seq'))
 
     def test2(self):
+        if rl_invariant: random.seed(530125105)
         chapters = 20   #so we know we use only one page
         from reportlab.lib.colors import pink
 

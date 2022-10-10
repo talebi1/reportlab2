@@ -69,6 +69,10 @@ def _reset():
                 BarcodeECC200DataMatrix,
                 ):
         registerWidget(widget)
+        from reportlab.graphics.barcode import dmtx
+        if dmtx.pylibdmtx:
+            registerWidget(dmtx.DataMatrixWidget)
+
 _reset()
 from reportlab.rl_config import register_reset
 register_reset(_reset)
@@ -91,7 +95,7 @@ def getCodeNames():
 def createBarcodeDrawing(codeName, **options):
     """This creates and returns a drawing with a barcode.
     """    
-    from reportlab.graphics.shapes import Drawing, Group
+    from reportlab.graphics.shapes import Drawing
 
     codes = getCodes()
     bcc = codes[codeName]

@@ -3,15 +3,15 @@
 """Tests for the Platypus SimpleIndex and AlphabeticIndex classes.
 """
 __version__='3.3.0'
-from reportlab import xrange
 from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation
 setOutDir(__name__)
-import sys, os
+import sys, os, random
+from reportlab.rl_config import invariant as rl_invariant
 from os.path import join, basename, splitext
 from math import sqrt
 import unittest
 from reportlab.lib.units import cm
-from reportlab.lib.utils import commajoin, asUnicode
+from reportlab.lib.utils import commajoin
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus.paragraph import Paragraph
 from reportlab.platypus.xpreformatted import XPreformatted
@@ -78,11 +78,12 @@ class IndexTestCase(unittest.TestCase):
 
     def test0(self):
         '''
-        Test case for Indexes. This will draw an index %sat the end of the
+        Test case for Indexes. This will draw an index at the end of the
         document with dots seperating the indexing terms from the page numbers.
         Index terms are grouped by their first 2, and first 3 characters.
         The page numbers should be clickable and link to the indexed word.
         '''
+        if rl_invariant: random.seed(1753799561)
         # Build story.
         
         for headers in False, True:
@@ -92,17 +93,18 @@ class IndexTestCase(unittest.TestCase):
             styleSheet = getSampleStyleSheet()
             bt = styleSheet['BodyText']
     
-            description = '<font color=red>%s</font>' % (self.test0.__doc__  % (headers and 'with alphabetic headers ' or ''))
+            description = self.test0.__doc__ 
+            if headers: description = description.replace('index at','index with alphabetic headers at')
+            description = '<font color=red>%s</font>' % description
             story.append(Paragraph(description, bt))
             index = SimpleIndex(dot=' . ', headers=headers)
 
             def addParas(words):
-                words = [asUnicode(w) for w in words]
                 txt = u' '.join([(len(w) > 5 and u'<index item=%s/>%s' % (quoteattr(commajoin([w[:2], w[:3], w])), w) or w) for w in words])
                 para = Paragraph(txt, makeBodyStyle())
                 story.append(para)
     
-            for i in xrange(20):
+            for i in range(20):
                 addParas(randomtext.randomText(randomtext.PYTHON, 5).split(' '))
             addParas([u+w for u in u'E\xc8\xc9\xca\xcb' for w in (u'erily',u'asily')])
             addParas([u+w for u in u'A\xc0\xc4\xc1\xc3\xc2' for w in (u'dvance',u'ttend')])

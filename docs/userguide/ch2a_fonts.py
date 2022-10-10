@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/docs/userguide/ch2a_fonts.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/docs/userguide/ch2a_fonts.py
 from tools.docco.rl_doc_utils import *
 from reportlab.lib.codecharts import SingleByteEncodingChart
 from reportlab.platypus import Image
@@ -216,7 +216,7 @@ for Type-1 fonts.
 disc("""
 Unfortunately, there is no reliable standard yet for such
 locations (not even on the same platform) and, hence, you might
-have to edit the file $reportlab/rl_config.py$ to modify the
+have to edit one of the files $reportlab_settings.py$ or $~/.reportlab_settings$ to modify the
 value of the $T1SearchPath$ identifier to contain additional
 directories.  Our own recommendation is to use the ^reportlab/fonts^
 folder in development; and to have any needed fonts as packaged parts of

@@ -5,7 +5,8 @@
 __version__='3.3.0'
 from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation
 setOutDir(__name__)
-import sys, os, time
+import sys, os, time, random
+from reportlab.rl_config import invariant as rl_invariant
 from operator import truth
 import unittest
 from reportlab.platypus.flowables import Flowable
@@ -86,8 +87,9 @@ class MyDocTemplate(BaseDocTemplate):
 class LeftRightTestCase(unittest.TestCase):
     "Test multi-page splitting of paragraphs (eyeball-test)."
     def testIt(self):
-        "This makes one long multi-page paragraph."
+        "LeftRightTestCase.testit"
 
+        if rl_invariant: random.seed(464568862)
         # Build story.
         story = []
 

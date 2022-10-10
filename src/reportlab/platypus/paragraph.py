@@ -1,6 +1,6 @@
 #Copyright ReportLab Europe Ltd. 2000-2017
 #see license.txt for license details
-#history https://bitbucket.org/rptlab/reportlab/history-node/tip/src/reportlab/platypus/paragraph.py
+#history https://hg.reportlab.com/hg-public/reportlab/log/tip/src/reportlab/platypus/paragraph.py
 __all__=(
         'Paragraph',
         'cleanBlockQuotedText',
@@ -12,20 +12,20 @@ __doc__='''The standard paragraph implementation'''
 from string import whitespace
 from operator import truth
 from unicodedata import category
-from reportlab.pdfbase.pdfmetrics import stringWidth, getFont, getAscentDescent
+from reportlab.pdfbase.pdfmetrics import stringWidth, getAscentDescent
 from reportlab.platypus.paraparser import ParaParser, _PCT, _num as _parser_num, _re_us_value
 from reportlab.platypus.flowables import Flowable
 from reportlab.lib.colors import Color
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
 from reportlab.lib.geomutils import normalizeTRBL
 from reportlab.lib.textsplit import wordSplit, ALL_CANNOT_START
+from reportlab.lib.styles import ParagraphStyle
 from copy import deepcopy
 from reportlab.lib.abag import ABag
-from reportlab.rl_config import platypus_link_underline, decimalSymbol, _FUZZ,\
-        paraFontSizeHeightOffset, hyphenationMinWordLength
-from reportlab.lib.utils import _className, isBytes, unicodeT, bytesT, isStr
+from reportlab.rl_config import decimalSymbol, _FUZZ, paraFontSizeHeightOffset,\
+    hyphenationMinWordLength
+from reportlab.lib.utils import _className, isBytes, isStr
 from reportlab.lib.rl_accel import sameFrag
-from reportlab import xrange
 import re
 from types import MethodType
 try:
@@ -150,7 +150,7 @@ def _leftDrawParaLine( tx, offset, extraspace, words, last=0):
     setXPos(tx,offset)
     if not simple:
         nSpaces = len(words)+_nbspCount(text)-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if simple:
         tx._textOut(text,1)
     else:
@@ -165,7 +165,7 @@ def _centerDrawParaLine( tx, offset, extraspace, words, last=0):
     text = ' '.join(words)
     if not simple:
         nSpaces = len(words)+_nbspCount(text)-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if simple:
         m = offset + 0.5 * extraspace
         setXPos(tx,m)
@@ -184,7 +184,7 @@ def _rightDrawParaLine( tx, offset, extraspace, words, last=0):
     text = ' '.join(words)
     if not simple:
         nSpaces = len(words)+_nbspCount(text)-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if simple:
         m = offset + extraspace
         setXPos(tx,m)
@@ -201,10 +201,10 @@ def _rightDrawParaLine( tx, offset, extraspace, words, last=0):
 def _justifyDrawParaLine( tx, offset, extraspace, words, last=0):
     setXPos(tx,offset)
     text  = ' '.join(words)
-    simple = last or (-1e-8<extraspace<=1e-8) or getattr(tx,'preformatted',False)
+    simple =  getattr(tx,'preformatted',False) or (-1e-8<extraspace<=1e-8) or (last and extraspace>-1e-8)
     if not simple:
         nSpaces = len(words)+_nbspCount(text)-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if simple:
         #last one or no extra space so left align
         tx._textOut(text,1)
@@ -214,6 +214,9 @@ def _justifyDrawParaLine( tx, offset, extraspace, words, last=0):
         tx.setWordSpace(0)
     setXPos(tx,-offset)
     return offset
+
+def _justifyDrawParaLineRTL( tx, offset, extraspace, words, last=0):
+    return (_rightDrawParaLine if last else _justifyDrawParaLine)(tx, offset, extraspace, words, last)
 
 def imgVRange(h,va,fontSize):
     '''return bottom,top offsets relative to baseline(0)'''
@@ -402,8 +405,13 @@ def _putFragLine(cur_x, tx, line, last, pKind):
             nSpaces += text.count(' ')+_nbspCount(text)
 
     cur_x_s = cur_x+(nSpaces-1)*ws
-    if last and pKind!='right' and xs.style.endDots:
-        _do_dots_frag(cur_x,cur_x_s,line.maxWidth,xs,tx)
+    if last and xs.style.endDots:
+        if xs.style.wordWrap!='RTL':    #assume dots left --> right
+            if pKind!='right':
+                _do_dots_frag(cur_x,cur_x_s,line.maxWidth,xs,tx)
+        elif pKind!='left':
+            start = tx._x_offset
+            _do_dots_frag(start, start, x0 - start, xs, tx, left=False)
 
     if LL:
         for l in LL:
@@ -418,13 +426,13 @@ def _putFragLine(cur_x, tx, line, last, pKind):
     if tx._x0!=x0:
         setXPos(tx,x0-tx._x0)
 
-def _do_dots_frag(cur_x, cur_x_s, maxWidth, xs, tx):
+def _do_dots_frag(cur_x, cur_x_s, maxWidth, xs, tx, left=True):
     text,fontName,fontSize,textColor,backColor,dy = _getDotsInfo(xs.style)
     txtlen = tx._canvas.stringWidth(text, fontName, fontSize)
     if cur_x_s+txtlen<=maxWidth:
         if tx._fontname!=fontName or tx._fontsize!=fontSize:
             tx.setFont(fontName,fontSize)
-        maxWidth += getattr(tx,'_dotsOffsetX',tx._x0)
+        if left: maxWidth += getattr(tx,'_dotsOffsetX',tx._x0)
         tx.setTextOrigin(0,xs.cur_y+dy)
         setXPos(tx,cur_x_s-cur_x)
         n = int((maxWidth-cur_x_s)/txtlen)
@@ -436,12 +444,13 @@ def _do_dots_frag(cur_x, cur_x_s, maxWidth, xs, tx):
         if dy: tx.setTextOrigin(tx._x0,xs.cur_y-dy)
 
 def _leftDrawParaLineX( tx, offset, line, last=0):
+    tx._x_offset = offset
     setXPos(tx,offset)
     extraSpace = line.extraSpace
     simple = extraSpace>-1e-8 or getattr(line,'preformatted',False)
     if not simple:
         nSpaces = line.wordCount+sum([_nbspCount(w.text) for w in line.words if not hasattr(w,'cbDefn')])-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if simple:
         _putFragLine(offset, tx, line, last, 'left')
     else:
@@ -451,13 +460,14 @@ def _leftDrawParaLineX( tx, offset, line, last=0):
     setXPos(tx,-offset)
 
 def _centerDrawParaLineX( tx, offset, line, last=0):
+    tx._x_offset = offset
     tx._dotsOffsetX = offset + tx._x0
     try:
         extraSpace = line.extraSpace
         simple = extraSpace>-1e-8 or getattr(line,'preformatted',False)
         if not simple:
             nSpaces = line.wordCount+sum([_nbspCount(w.text) for w in line.words if not hasattr(w,'cbDefn')])-1
-            simple = not nSpaces
+            simple = nSpaces<=0
         if simple:
             m = offset+0.5*line.extraSpace
             setXPos(tx,m)
@@ -472,11 +482,12 @@ def _centerDrawParaLineX( tx, offset, line, last=0):
         del tx._dotsOffsetX
 
 def _rightDrawParaLineX( tx, offset, line, last=0):
+    tx._x_offset = offset
     extraSpace = line.extraSpace
     simple = extraSpace>-1e-8 or getattr(line,'preformatted',False)
     if not simple:
         nSpaces = line.wordCount+sum([_nbspCount(w.text) for w in line.words if not hasattr(w,'cbDefn')])-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if simple:
         m = offset+line.extraSpace
         setXPos(tx,m)
@@ -489,12 +500,13 @@ def _rightDrawParaLineX( tx, offset, line, last=0):
     setXPos(tx,-m)
 
 def _justifyDrawParaLineX( tx, offset, line, last=0):
+    tx._x_offset = offset
     setXPos(tx,offset)
     extraSpace = line.extraSpace
-    simple = last or abs(extraSpace)<=1e-8 or line.lineBreak
+    simple = line.lineBreak or (-1e-8<extraSpace<=1e-8) or (last and extraSpace>-1e-8)
     if not simple:
         nSpaces = line.wordCount+sum([_nbspCount(w.text) for w in line.words if not hasattr(w,'cbDefn')])-1
-        simple = not nSpaces
+        simple = nSpaces<=0
     if not simple:
         tx.setWordSpace(extraSpace / float(nSpaces))
         _putFragLine(offset, tx, line, last, 'justify')
@@ -503,11 +515,19 @@ def _justifyDrawParaLineX( tx, offset, line, last=0):
         _putFragLine(offset, tx, line, last, 'justify') #no space modification
     setXPos(tx,-offset)
 
+def _justifyDrawParaLineXRTL( tx, offset, line, last=0):
+    return (_rightDrawParaLineX if last else _justifyDrawParaLineX)( tx, offset, line, last)
+
 def _trailingSpaceLength(text, tx):
     ws = _wsc_end_search(text)
     return tx._canvas.stringWidth(ws.group(), tx._fontname, tx._fontsize) if ws else 0
 
 class _HSFrag(list):
+    '''a frag that's followed by a space'''
+    pass
+
+class _InjectedFrag(list):
+    '''a frag that's injected in breaklines and must be removed on reprocessing'''
     pass
 
 class _SplitFrag(list):
@@ -520,11 +540,96 @@ class _SplitFragH(_SplitFrag):
 
 
 class _SplitFragHY(_SplitFragH):
-    '''a head split frag that need '-' removing befire rejoining'''
+    '''a head split frag that needs '-' removing before rejoining'''
     pass
 
 class _SplitFragHS(_SplitFrag,_HSFrag):
     """a split frag that's followed by a space"""
+    pass
+
+class _SplitFragLL(_SplitFragHS):
+    """a frag that is forced to end in - because of paragraph split"""
+    pass
+
+class _SHYIndexedStr(str):
+    def __new__(cls, u, X=None):
+        if not X:
+            u = u.split(_shy)
+            X = []
+            a = X.append
+            x = 0
+            for s in u:
+                x += len(s)
+                a(x)
+            u = u''.join(u)
+            X = X[:-1]
+        self = str.__new__(cls,u)
+        self._shyIndices = X
+        return self
+
+def _shyUnsplit(s,ss=None):
+    '''rejoin two parts of an original _SHYIndexedStr or str that was split'''
+    u = s.rstrip(u'-')
+    if isinstance(s,_SHYIndexedStr):
+        X = s._shyIndices[:]
+        x = X[-1]
+        if ss:
+            if hasattr(ss,'_shyIndices'):
+                X.extend([_+x for _ in ss._shyIndices])
+            u += ss
+        return _SHYIndexedStr(u,X)
+    elif ss:
+        u += ss
+        if hasattr(ss,'_shyIndices'):
+            X.extend([_+x for _ in ss._shyIndices])
+            return _SHYIndexedStr(u,X)
+    return u
+
+class _SHYWord(list):
+    '''a fragword containing soft hyphens some of its strings are _SHYIndexedStr'''
+    def shyphenate(self, newWidth, maxWidth):
+        ww = self[0]
+        self._fsww = 0x7fffffff
+        if ww==0: return []
+        possible = None
+        exceeded = False
+        baseWidth = baseWidth0 = newWidth - ww
+        fsww = None
+        for i,(f,t) in enumerate(self[1:]):
+            sW = lambda s: stringWidth(s, f.fontName, f.fontSize)
+            if isinstance(t,_SHYIndexedStr):
+                # there's a shy in this bit
+                shyLen = sW(u'-')
+                bw = baseWidth + shyLen
+                for j, x in enumerate(t._shyIndices):
+                    left, right = t[:x], t[x:]
+                    leftw = bw+sW(left)
+                    if fsww is None: fsww = leftw
+                    exceeded = leftw > maxWidth
+                    if exceeded: break
+                    possible = i, j, x, leftw, left, right, shyLen
+                baseWidth += sW(t)
+            else:
+                baseWidth += sW(t)
+                exceeded = baseWidth > maxWidth
+            if exceeded and fsww is not None: break
+        self._fsww = fsww-baseWidth0 if fsww is not None else 0x7fffffff
+        if not possible: return []
+        i, j, x, leftw, left, right, shyLen = possible
+        i1 = i+1
+        f, t = self[i1] #we're splitting this subfrag
+        X = t._shyIndices
+        lefts = _SHYIndexedStr(left+u'-',X[:j+1])
+        L = self[:i1] + [(f,lefts)]
+        L[0] = leftw - baseWidth0
+        R = [ww-L[0]+shyLen]+([] if not right else [(f,_SHYIndexedStr(right,[_-x for _ in X[j+1:]]))]) + self[i1+1:]
+        return _SplitFragSHY(L), _SHYWordHS(R)
+
+class _SplitFragSHY(_SHYWord, _SplitFragHY):
+    '''a head split frag that requires removal of a hyphen at the end before rejoining'''
+
+class _SHYWordHS(_SHYWord,_SplitFragHS):
+    '''a fragword containing soft hyphens that's followed by a space'''
     pass
 
 def _processed_frags(frags):
@@ -537,6 +642,32 @@ _FK_TEXT = 0
 _FK_IMG = 1
 _FK_APPEND = 2
 _FK_BREAK = 3
+
+def _rejoinSplitFragWords(F):
+    '''F should be a list of _SplitFrags'''
+    R = [0]
+    aR = R.append
+    wLen = 0
+    psty = None
+    for f in F:
+        wLen += f[0]
+        rmhy = isinstance(f,_SplitFragHY)
+        for ff in f[1:]:
+            sty, t = ff
+            if rmhy and ff is f[-1]:
+                wLen -= stringWidth(t[-1],sty.fontName,sty.fontSize) + 1e-8
+                t = _shyUnsplit(t) #strip the '-'
+            if psty is sty:
+                R[-1] = (sty, _shyUnsplit(R[-1][1],t))
+            else:
+                aR((sty,t))
+                psty = sty
+    R[0] = wLen
+    return _reconstructSplitFrags(f)(R)
+
+def _reconstructSplitFrags(f):
+    return ((_SHYWordHS if isinstance(f,_HSFrag) else _SHYWord) if isinstance(f,_SHYWord)
+            else ((_SplitFragLL if isinstance(f,_SplitFragLL) else _HSFrag) if isinstance(f,_HSFrag) else list))
 
 def _getFragWords(frags,maxWidth=None):
     ''' given a Parafrag list return a list of fragwords
@@ -556,42 +687,78 @@ def _getFragWords(frags,maxWidth=None):
     W = []
     if _processed_frags(frags):
         aW = W.append
-        for f in frags:
-            _rescaleFrag(f)
-            if isinstance(f,_SplitFrag):
-                f0 = f[0]
-                if not W:
-                    W0t = type(f0)
-                    Wlen = 0
-                    sty = None
+        #print('\nprocessed frags')
+        #for _i,_r in enumerate(frags):
+        #   print('%3d: [%d, [%s]](%s)' % (_i,_r[0],', '.join(('%r' % _ff[1] for _ff in _r[1:])), type(_r)))
+        if True:
+            for f in frags:
+                if isinstance(f,_InjectedFrag): continue
+                _rescaleFrag(f)
+                if isinstance(f,_SplitFrag):
+                    aW(f)
+                    if isinstance(f, _HSFrag):
+                        aR(_rejoinSplitFragWords(W))
+                        del W[:]
                 else:
-                    if isinstance(lf,_SplitFragHY):
-                        sty, t = W[-1]
-                        Wlen -= stringWidth(t[-1],sty.fontName,sty.fontSize) + 1e-8
-                        W[-1] = (sty,t[:-1]) #strip the '-'
-                Wlen += f0
-                for ts,t in f[1:]:
-                    if ts is sty:
-                        W[-1] = (sty,W[-1][1]+t)
+                    if W:
+                        aR(_rejoinSplitFragWords(W))
+                        del W[:]
+                    aR(f)
+            if W:
+                aR(_rejoinSplitFragWords(W))
+        else:
+            for f in frags:
+                if isinstance(f,_InjectedFrag): continue
+                _rescaleFrag(f)
+                if isinstance(f,_SplitFrag):
+                    f0 = f[0]
+                    if not W:
+                        Wlen = 0
+                        sty = None
                     else:
-                        aW((ts,t))
-                        sty = ts
-                #W.extend(f[1:])
-                lf = f          #latest f in W
-                continue
-            else:
-                if W:
-                    #must end a joining
-                    aR((_HSFrag if isinstance(lf,_HSFrag) else list)([W0t(Wlen)]+W))
-                    del W[:]
-                aR(f)
-        if W:
-            #must end a joining
-            aR((_HSFrag if isinstance(lf,_HSFrag) else list)([W0t(Wlen)]+W))
+                        if isinstance(lf,_SplitFragHY):
+                            sty, t = W[-1]
+                            Wlen -= stringWidth(t[-1],sty.fontName,sty.fontSize) + 1e-8
+                            W[-1] = (sty,_shyUnsplit(t)) #strip the '-'
+                    Wlen += f0
+                    for ts,t in f[1:]:
+                        if ts is sty:
+                            W[-1] = (sty, _shyUnsplit(W[-1][1],t))
+                        else:
+                            aW((ts,t))
+                            sty = ts
+                    if isinstance(f, _HSFrag):
+                        lf = None
+                        aR(_reconstructSplitFrags(f)([Wlen]+W))
+                        #aR((((_SHYWordHS if isinstance(f,_HSFrag) else _SHYWord) if isinstance(f,_SHYWord)
+                        #       else (_HSFrag if isinstance(f,_HSFrag) else list))
+                        #   )([Wlen]+W))
+                        del W[:]
+                    else:
+                        lf = f          #latest f in W
+                else:
+                    if W:
+                        #must end a joining
+                        aR(_reconstructSplitFrags(f)([Wlen]+W))
+                        #aR((((_SHYWordHS if isinstance(lf,_HSFrag) else _SHYWord) if isinstance(lf,_SHYWord)
+                        #       else (_HSFrag if isinstance(lf,_HSFrag) else list))
+                        #   )([Wlen]+W))
+                        del W[:]
+                    aR(f)
+            if W:
+                #must end a joining
+                aR(_reconstructSplitFrags(lf)([Wlen]+W))
+                #aR((((_SHYWordHS if isinstance(lf,_HSFrag) else _SHYWord) if isinstance(lf,_SHYWord)
+                #       else (_HSFrag if isinstance(lf,_HSFrag) else list))
+                #   )([Wlen]+W))
+        #print('\nreconstructed frag words')
+        #for _i,_r in enumerate(R):
+        #   print('%3d: [%d, [%s]](%s)' % (_i,_r[0],', '.join(('%r' % _ff[1] for _ff in _r[1:])), type(_r)))
     else:
         hangingSpace = False
         n = 0
         hangingStrip = True
+        shyIndices = False
         for f in frags:
             text = f.text
             if text!='':
@@ -604,9 +771,10 @@ def _getFragWords(frags,maxWidth=None):
                 if text[0] in whitespace or not S:
                     if W:
                         W.insert(0,n)   #end preceding word
-                        aR(W)
+                        aR(_SHYWord(W) if shyIndices else W)
                         whs = hangingSpace
                         W = []
+                        shyIndices = False
                         hangingSpace = False
                         n = 0
                     else:
@@ -617,21 +785,29 @@ def _getFragWords(frags,maxWidth=None):
                         continue
 
                 for w in S[:-1]:
+                    if _shy in w:
+                        w = _SHYIndexedStr(w)
+                        shyIndices = True
                     W.append((f,w))
                     n += stringWidth(w, f.fontName, f.fontSize)
                     W.insert(0,n)
-                    aR(_HSFrag(W))
+                    aR(_SHYWordHS(W) if shyIndices or isinstance(W,_SHYWord) else _HSFrag(W))
                     W = []
+                    shyIndices = False
                     n = 0
 
                 hangingSpace = False
                 w = S[-1]
+                if _shy in w:
+                    w = _SHYIndexedStr(w)
+                    shyIndices = True
                 W.append((f,w))
                 n += stringWidth(w, f.fontName, f.fontSize)
                 if text and text[-1] in whitespace:
                     W.insert(0,n)
-                    aR(_HSFrag(W))
+                    aR(_SHYWord(W) if shyIndices or isinstance(W,_SHYWord) else _HSFrag(W))
                     W = []
+                    shyIndices = False
                     n = 0
             elif hasattr(f,'cbDefn'):
                 cb = f.cbDefn
@@ -644,6 +820,7 @@ def _getFragWords(frags,maxWidth=None):
                         W.insert(0,n)
                         aR(_HSFrag(W) if hangingSpace else W)
                         W = []
+                        shyIndices = False
                         hangingSpace = False
                         n = 0
                     f._fkind = _FK_IMG
@@ -662,6 +839,7 @@ def _getFragWords(frags,maxWidth=None):
                     aR(W)
                     W = []
                     n = 0
+                    shyIndices = False
                     hangingSpace = False
                 f._fkind = _FK_BREAK
                 aR([0,(f,'')])
@@ -669,19 +847,22 @@ def _getFragWords(frags,maxWidth=None):
 
         if W:
             W.insert(0,n)
-            aR(W)
+            aR(_SHYWord(W) if shyIndices or isinstance(W,_SHYWord) else W)
     if not R:
         if frags:
             f = frags[0]
             f._fkind = _FK_TEXT
             R = [[0,(f,u'')]]
 
+    #print('\nreturned frag words')
+    #for _i,_r in enumerate(R):
+    #   print('%3d: [%d, [%s]](%s)' % (_i,_r[0],', '.join(('%r' % _ff[1] for _ff in _r[1:])), type(_r)))
     return R
 
 def _fragWordIter(w):
     for f, s in w[1:]:
         if hasattr(f,'cbDefn'):
-            yield f, getattr(f,'width',0), s
+            yield f, getattr(f.cbDefn,'width',0), s
         elif s:
             if isBytes(s):
                 s = s.decode('utf8')    #only encoding allowed
@@ -771,6 +952,7 @@ def _uri_split_pairs(uri):
 #    https://en.wikipedia.org/wiki/List_of_Unicode_characters#Latin_script
 _hy_letters=u'A-Za-z\xc0-\xd6\xd8-\xf6\xf8-\u024f\u1e80-\u1e85\u1e00-\u1eff\u0410-\u044f\u1e02\u1e03\u1e0a\u1e0b\u1e1e\u1e1f\u1e40\u1e41\u1e56\u1e57\u1e60\u1e61\u1e6a\u1e6b\u1e9b\u1ef2\u1ef3'
 #explicit hyphens
+_shy = u'\xad'
 _hy_shy = u'-\xad'
 
 _hy_pfx_pat = re.compile(u'^[\'"([{\xbf\u2018\u201a\u201c\u201e]+')
@@ -787,12 +969,16 @@ def _hyGenPair(hyphenator, s, ww, newWidth, maxWidth, fontName, fontSize, uriWas
         s = s[len(pfx):]
     else:
         pfx = u''
-    m = _hy_sfx_pat.search(s)
-    if m:
-        sfx = m.group(0)
-        s = s[:-len(sfx)]
+    if isinstance(s,_SplitWordLL) and s[-1]=='-':
+        sfx = u'-'
+        s = s[:-1]
     else:
-        sfx = u''
+        m = _hy_sfx_pat.search(s)
+        if m:
+            sfx = m.group(0)
+            s = s[:-len(sfx)]
+        else:
+            sfx = u''
     if len(s) < hymwl: return
 
     w0 = newWidth - ww
@@ -831,7 +1017,7 @@ def _hyGenPair(hyphenator, s, ww, newWidth, maxWidth, fontName, fontSize, uriWas
     #so this may succeed where the above does not
     n = len(H)
     if n>=3 and embeddedHyphenation and u'' not in H and _hy_shy_letters_pat.match(s):
-        for i in reversed(xrange(2,n,2)):
+        for i in reversed(range(2,n,2)):
             h = pfx + ''.join(H[:i])
             t = ''.join(H[i:]) + sfx
             hw = stringWidth(h,fontName,fontSize)
@@ -850,7 +1036,7 @@ def _fragWordSplitRep(FW):
     eX = X.extend
     U = []
     aU = U.append
-    for i in xrange(1,len(FW)):
+    for i in range(1,len(FW)):
         f, t = FW[i]
         if f.rise!=0: return None
         if hasattr(f,'cbDefn') and getattr(f.cbDefn,'width',0): return
@@ -876,12 +1062,16 @@ def _hyGenFragsPair(hyphenator, FW, newWidth, maxWidth, uriWasteReduce, embedded
         s = s[len(pfx):]
     else:
         pfx = u''
-    m = _hy_sfx_pat.search(s)
-    if m:
-        sfx = m.group(0)
-        s = s[:-len(sfx)]
+    if isinstance(FW,_SplitFragLL) and FW[-1][1][-1]=='-':
+        sfx = u'-'
+        s = s[:-1]
     else:
-        sfx = u''
+        m = _hy_sfx_pat.search(s)
+        if m:
+            sfx = m.group(0)
+            s = s[:-len(sfx)]
+        else:
+            sfx = u''
     if len(s) < hymwl: return
     ww = FW[0]
     w0 = newWidth - ww
@@ -905,11 +1095,8 @@ def _hyGenFragsPair(hyphenator, FW, newWidth, maxWidth, uriWasteReduce, embedded
                 FR = FW[fx+1:]
                 if sfxr: FR.insert(0,(ffx,sfxr))
                 h = _rebuildFragWord(FL)
-                hw = h[0]
-                t = [ww-hw]+FR
-                tw = w0+hw
-                if tw<=maxWidth:
-                    return u'',0,hw,ww-hw,h,t
+                if w0+h[0]<=maxWidth:
+                    return u'',h,_rebuildFragWord(FR)
         return
 
     H = _hy_shy_pat.split(s)
@@ -933,18 +1120,14 @@ def _hyGenFragsPair(hyphenator, FW, newWidth, maxWidth, uriWasteReduce, embedded
             FR = FW[fx+1:]
             if sfxr: FR.insert(0,(ffx,sfxr))
             h = _rebuildFragWord(FL)
-            hw = h[0]
-            ohw = stringWidth(sfxl,ffx.fontName,ffx.fontSize)
-            t = [ww-ohw]+FR
-            tw = w0+hw
-            if tw<=maxWidth:
-                return jc,hw-ohw,hw,ww-ohw,h,t
+            if w0+h[0]<=maxWidth:
+                return jc,h,_rebuildFragWord(FR)
 
     #even though the above tries for words with '-' it may be that no split ended with '-'
     #so this may succeed where the above does not
     n = len(H)
     if n>=3 and embeddedHyphenation and u'' not in H and _hy_shy_letters_pat.match(s):
-        for i in reversed(xrange(2,n,2)):
+        for i in reversed(range(2,n,2)):
             pos = len(pfx + u''.join(H[:i]))
             fx, cc = X[pos]
             #FW[fx] is split
@@ -956,11 +1139,8 @@ def _hyGenFragsPair(hyphenator, FW, newWidth, maxWidth, uriWasteReduce, embedded
             FR = FW[fx+1:]
             if sfxr: FR.insert(0,(ffx,sfxr))
             h = _rebuildFragWord(FL)
-            hw = h[0]
-            t = [ww-hw]+FR
-            tw = w0+hw
-            if tw<=maxWidth:
-                return u'',0,hw,ww-hw,h,t
+            if w0+h[0]<=maxWidth:
+                return u'',h,_rebuildFragWord(FR)
 
 def _hyphenateFragWord(hyphenator,FW,newWidth,maxWidth,uriWasteReduce,embeddedHyphenation,
                         hymwl=hyphenationMinWordLength):
@@ -968,6 +1148,8 @@ def _hyphenateFragWord(hyphenator,FW,newWidth,maxWidth,uriWasteReduce,embeddedHy
     if ww==0: return []
     if len(FW)==2:
         f, s = FW[1]
+        if isinstance(FW,_SplitFragLL):
+            s = _SplitWordLL(s)
         R = _hyGenPair(hyphenator, s, ww, newWidth, maxWidth, f.fontName, f.fontSize,uriWasteReduce,embeddedHyphenation, hymwl)
         if R:
             jc, hylen, hw, tw, h, t = R
@@ -975,19 +1157,69 @@ def _hyphenateFragWord(hyphenator,FW,newWidth,maxWidth,uriWasteReduce,embeddedHy
     else:
         R = _hyGenFragsPair(hyphenator, FW, newWidth, maxWidth,uriWasteReduce,embeddedHyphenation, hymwl)
         if R:
-            jc, hylen, hw, tw, h, t = R
+            jc, h, t = R
             return [(_SplitFragHY if jc else _SplitFragH)(h),(_SplitFragHS if isinstance(FW,_HSFrag) else _SplitFrag)(t)]
 
     return None
 
-class _SplitWord(unicodeT):
+class _SplitWord(str):
     pass
 
-class _SplitWordH(unicodeT):
+class _SplitWordEnd(_SplitWord):
+    pass
+
+class _SplitWordH(_SplitWord):
     pass
 
 class _SplitWordHY(_SplitWordH):
     '''head part of a hyphenation word pair'''
+    pass
+
+class _SplitWordLL(str):
+    '''a word that's forced to end with - because of paragraph split'''
+    pass
+
+class _SHYStr(str):
+    '''for simple soft hyphenated words'''
+    def __new__(cls,s):
+        S = s.split(_shy)
+        if len(S)>1:
+            self = str.__new__(cls, u''.join(S))
+            sp = [0]
+            asp = sp.append
+            for ss in S:
+                asp(sp[-1]+len(ss))
+            self.__sp__ = sp[1:-1]
+        else:
+            self = str.__new__(cls, s)
+            self.__sp__ = []
+        return self
+
+    def __shysplit__(self, fontName, fontSize, baseWidth, limWidth, encoding='utf8'):
+            '''
+            baseWidth = currentWidth + spaceWidth + hyphenWidth
+            limWidth = maxWidth + spaceShrink
+            '''
+            self._fsww = 0x7fffffff
+            for i, sp in reversed(list(enumerate(self.__sp__))):
+                #we iterate backwards so that we return the longest that fits
+                #else we will end up with the shortest value in self._fsww
+                sw = self[:sp]
+                sww = stringWidth(sw, fontName, fontSize, encoding)
+                if not i: self._fsww = sww
+                swnw = baseWidth + sww
+                if swnw <= limWidth:
+                    #we found a suitable split in a soft-hyphenated word
+                    T = self.__sp__[i:] + [len(self)]
+                    S = [self[T[j]:T[j+1]] for j in range(len(T)-1)]
+                    sw = _SHYStr(sw+u'-')
+                    sw.__sp__ = self.__sp__[:i]
+                    return [sw,_SHYStr(_shy.join(S))]
+
+class _SHYSplitHY(_SHYStr,_SplitWordHY):
+    pass
+
+class _SHYSplit(_SHYStr,_SplitWord):
     pass
 
 def _hyphenateWord(hyphenator,fontName,fontSize,w,ww,newWidth,maxWidth, uriWasteReduce,embeddedHyphenation,
@@ -996,9 +1228,9 @@ def _hyphenateWord(hyphenator,fontName,fontSize,w,ww,newWidth,maxWidth, uriWaste
     R = _hyGenPair(hyphenator, w, ww, newWidth, maxWidth, fontName, fontSize, uriWasteReduce,embeddedHyphenation, hymwl)
     if R:
         hy, hylen, hw, tw, h, t = R
-        return [(_SplitWordHY if hy else _SplitWordH)(h+hy),_SplitWord(t)]
+        return [(_SplitWordHY if hy else _SplitWordH)(h+hy),_SplitWordEnd(t)]
 
-def _splitWord(w,maxWidth,maxWidths,lineno,fontName,fontSize,encoding='utf8'):
+def _splitWord(w, lineWidth, maxWidths, lineno, fontName, fontSize, encoding='utf8'):
     '''
     split w into words that fit in lines of length
     maxWidth
@@ -1012,8 +1244,8 @@ def _splitWord(w,maxWidth,maxWidths,lineno,fontName,fontSize,encoding='utf8'):
     R = []
     aR = R.append
     maxlineno = len(maxWidths)-1
-    lineWidth = 0
     wordText = u''
+    maxWidth = maxWidths[min(maxlineno,lineno)]
     if isBytes(w):
         w = w.decode(encoding)
     for c in w:
@@ -1027,33 +1259,49 @@ def _splitWord(w,maxWidth,maxWidths,lineno,fontName,fontSize,encoding='utf8'):
             wordText = u''
         wordText += c
         lineWidth = newLineWidth
-    aR(_SplitWord(wordText))
-    return [c for c in R if c]
+    aR(_SplitWordEnd(wordText))
+    return R
+
+def _rejoinSplitWords(R):
+    '''R can be a list of pure _SplitWord or _SHYStr'''
+    if isinstance(R[0],_SHYStr):
+        r = R[0]
+        for _ in R[:]:
+            r = _shyUnsplit(r,_)
+        return r
+    elif isinstance(R[0],_SplitWordHY):
+        cf = str if isinstance(R[-1], _SplitWordEnd) else _SplitWordHY
+        s = u''.join((_[:-1] if isinstance(_,_SplitWordHY) else _ for _ in R))
+        return s if isinstance(R[-1], _SplitWordEnd) else _SplitWordHY(s+u'-')
+    else:
+        return ''.join(R)
 
 def _yieldBLParaWords(blPara,start,stop):
-    state = 0
     R = []
     aR = R.append
     for l in blPara.lines[start:stop]:
         for w in l[1]:
             if isinstance(w,_SplitWord):
-                if R and isinstance(R[-1],_SplitWordHY):
-                    R[-1] = R[-1][:-1]  #remove unwanted -
                 aR(w)
+                if isinstance(w,_SplitWordEnd):
+                    yield _rejoinSplitWords(R)
+                    del R[:]
                 continue
             else:
                 if R:
-                    yield ''.join(R)
+                    yield _rejoinSplitWords(R)
                     del R[:]
             yield w
     if R:
-        yield ''.join(R)
+        yield _rejoinSplitWords(R)
 
 def _split_blParaSimple(blPara,start,stop):
     f = blPara.clone()
     for a in ('lines', 'kind', 'text'):
         if hasattr(f,a): delattr(f,a)
     f.words = list(_yieldBLParaWords(blPara,start,stop))
+    if isinstance(f.words[-1],_SplitWordHY):
+        f.words[-1].__class__ = _SHYSplit if isinstance(f.words[-1],_SHYStr) else _SplitWordLL
     return [f]
 
 def _split_blParaHard(blPara,start,stop):
@@ -1219,7 +1467,7 @@ def _do_under_line(i, x1, ws, tx, us_lines):
     tc = f.textColor
     values = dict(L=fs,F=fs,f=fs)
     dw = tx._defaultLineWidth
-    x2 = x1 + tx._canvas.stringWidth(' '.join(tx.XtraState.lines[i][1]), tx._fontname, fs)
+    x2 = x1 + tx._canvas.stringWidth(' '.join(tx.XtraState.lines[i][1]), tx._fontname, fs) + ws
     for n,k,c,w,o,r,m,g in us_lines:
         underline = k=='underline'
         lw = _usConv(w,values,default=tx._defaultLineWidth)
@@ -1313,11 +1561,11 @@ def textTransformFrags(frags,style):
     if tt:
         tt=tt.lower()
         if tt=='lowercase':
-            tt = unicodeT.lower
+            tt = str.lower
         elif tt=='uppercase':
-            tt = unicodeT.upper
+            tt = str.upper
         elif  tt=='capitalize':
-            tt = unicodeT.title
+            tt = str.title
         elif tt=='none':
             return
         else:
@@ -1326,7 +1574,7 @@ def textTransformFrags(frags,style):
         if n==1:
             #single fragment the easy case
             frags[0].text = tt(frags[0].text)
-        elif tt is unicodeT.title:
+        elif tt is str.title:
             pb = True
             for f in frags:
                 u = f.text
@@ -1345,10 +1593,10 @@ def textTransformFrags(frags,style):
                 if not u: continue
                 f.text = tt(u)
 
-class cjkU(unicodeT):
+class cjkU(str):
     '''simple class to hold the frag corresponding to a str'''
     def __new__(cls,value,frag,encoding):
-        self = unicodeT.__new__(cls,value)
+        self = str.__new__(cls,value)
         self._frag = frag
         if hasattr(frag,'cbDefn'):
             w = getattr(frag.cbDefn,'width',0)
@@ -1433,13 +1681,13 @@ def cjkFragSplit(frags, maxWidths, calcBounds, encoding='utf8'):
                     #  - reversion to Kanji (which would be a good split point)
                     #  - in the worst case, roughly half way back along the line
                     limitCheck = (lineStartPos+i)>>1        #(arbitrary taste issue)
-                    for j in xrange(i-1,limitCheck,-1):
+                    for j in range(i-1,limitCheck,-1):
                         uj = U[j]
                         if uj and category(uj)=='Zs' or ord(uj)>=0x3000:
                             k = j+1
                             if k<i:
                                 j = k+1
-                                extraSpace += sum(U[ii].width for ii in xrange(j,i))
+                                extraSpace += sum(U[ii].width for ii in range(j,i))
                                 w = U[k].width
                                 u = U[k]
                                 i = j
@@ -1471,6 +1719,15 @@ def cjkFragSplit(frags, maxWidths, calcBounds, encoding='utf8'):
         lines.append(makeCJKParaLine(U[lineStartPos:],maxWidth,widthUsed,maxWidth-widthUsed,False,calcBounds))
 
     return ParaLines(kind=1,lines=lines)
+
+def _setTXLineProps(tx, canvas, style):
+    tx._defaultLineWidth = canvas._lineWidth
+    tx._underlineColor = getattr(style,'underlineColor','')
+    tx._underlineWidth = getattr(style,'underlineWidth','')
+    tx._underlineOffset = getattr(style,'underlineOffset','') or '-0.125f'
+    tx._strikeColor = getattr(style,'strikeColor','')
+    tx._strikeWidth = getattr(style,'strikeWidth','')
+    tx._strikeOffset = getattr(style,'strikeOffset','') or '0.25f'
 
 class Paragraph(Flowable):
     """ Paragraph(text, style, bulletText=None, caseSensitive=1)
@@ -1535,7 +1792,9 @@ class Paragraph(Flowable):
 
         It will also be able to handle any MathML specified Greek characters.
     """
-    def __init__(self, text, style, bulletText = None, frags=None, caseSensitive=1, encoding='utf8'):
+    def __init__(self, text, style=None, bulletText = None, frags=None, caseSensitive=1, encoding='utf8'):
+        if style is None:
+            style = ParagraphStyle(name='paragraphImplicitDefaultStyle')
         self.caseSensitive = caseSensitive
         self.encoding = encoding
         self._setup(text, style, bulletText or getattr(style,'bulletText',None), frags, cleanBlockQuotedText)
@@ -1555,7 +1814,6 @@ class Paragraph(Flowable):
         #This used to be a global parser to save overhead.
         #In the interests of thread safety it is being instantiated per paragraph.
         #On the next release, we'll replace with a cElementTree parser
-
         if frags is None:
             text = cleaner(text)
             _parser = ParaParser()
@@ -1633,7 +1891,11 @@ class Paragraph(Flowable):
         lines = blPara.lines
         sFW = lines[start].sFW
         sFWN = lines[stop].sFW if stop!=len(lines) else len(self.frags)
-        return self.frags[sFW:sFWN]
+        F = self.frags[sFW:sFWN]
+        while F and isinstance(F[-1],_InjectedFrag): del F[-1]
+        if isinstance(F[-1],_SplitFragHY):
+            F[-1].__class__ = _SHYWordHS if isinstance(F[-1],_SHYWord) else _SplitFragLL
+        return F
 
     def _get_split_blParaFunc(self):
         return (_split_blParaSimple if self.blPara.kind==0 
@@ -1704,7 +1966,11 @@ class Paragraph(Flowable):
         P1=self.__class__(None,style1,bulletText=self.bulletText,frags=func(blPara,0,s))
         #this is a major hack
         P1.blPara = ParaLines(kind=1,lines=blPara.lines[0:s],aH=availHeight,aW=availWidth)
-        P1._JustifyLast = 1
+        #do not justify text if linebreak was inserted after the text
+        #bug reported and fix contributed by Niharika Singh <nsingh@shoobx.com>
+        P1._JustifyLast = not (isinstance(blPara.lines[s-1],FragLine)
+                                and hasattr(blPara.lines[s-1], 'lineBreak')
+                                and blPara.lines[s-1].lineBreak)
         P1._splitpara = 1
         P1.height = height
         P1.width = availWidth
@@ -1780,6 +2046,7 @@ class Paragraph(Flowable):
             hyphenator = None
         uriWasteReduce = style.uriWasteReduce
         embeddedHyphenation = style.embeddedHyphenation
+        hyphenation2 = embeddedHyphenation>1
         spaceShrinkage = style.spaceShrinkage
         splitLongWords = style.splitLongWords
         attemptHyphenation = hyphenator or uriWasteReduce or embeddedHyphenation
@@ -1817,43 +2084,96 @@ class Paragraph(Flowable):
                     return f.clone(kind=0, lines=[],ascent=ascent,descent=descent,fontSize=fontSize)
             spaceWidth = stringWidth(' ', fontName, fontSize, self.encoding)
             dSpaceShrink = spaceShrinkage*spaceWidth
-            spaceShrink = 0
             cLine = []
             currentWidth = -spaceWidth   # hack to get around extra space for word 1
+            hyw = stringWidth('-', fontName, fontSize, self.encoding)
+            forcedSplit = 0
             while words:
                 word = words.pop(0)
+                if not word and isinstance(word,_SplitWord):
+                    forcedSplit = 1
+                elif _shy in word:
+                    word = _SHYStr(word)    #allow for soft hyphenation
                 #this underscores my feeling that Unicode throughout would be easier!
                 wordWidth = stringWidth(word, fontName, fontSize, self.encoding)
                 newWidth = currentWidth + spaceWidth + wordWidth
-                if newWidth>maxWidth+spaceShrink and not isinstance(word,_SplitWordH):
-                    if attemptHyphenation:
+                limWidth = maxWidth + dSpaceShrink*len(cLine)
+                #print(f's: {currentWidth=} spaceShrink={limWidth-maxWidth} {newWidth=} {limWidth=} {newWidth>limWidth} cond={newWidth>limWidth and not (isinstance(word,_SplitWordH) or forcedSplit)} {word=}')
+                if newWidth>limWidth and not (isinstance(word,_SplitWordH) or forcedSplit):
+                    if isinstance(word,_SHYStr):
+                        hsw = word.__shysplit__(
+                                fontName, fontSize,
+                                currentWidth + spaceWidth + hyw - 1e-8,
+                                limWidth,
+                                encoding = self.encoding,
+                                )
+                        if hsw:
+                            words[0:0] = hsw
+                            self._hyphenations += 1
+                            forcedSplit = 1
+                            continue
+                        elif len(cLine):
+                            nMW = maxWidths[min(maxlineno,lineno)]
+                            if hyphenation2 or (word._fsww+hyw+1e-8)<=nMW:
+                                hsw = word.__shysplit__(
+                                    fontName, fontSize,
+                                    0 + hyw - 1e-8,
+                                    nMW,
+                                    encoding = self.encoding,
+                                    )
+                                if hsw:
+                                    words[0:0] = [word]
+                                    forcedSplit = 1
+                                    word = None
+                                    newWidth = currentWidth
+                    elif attemptHyphenation:
                         hyOk = not getattr(f,'nobr',False)
                         hsw = _hyphenateWord(hyphenator if hyOk else None,
-                                fontName, fontSize, word, wordWidth, newWidth, maxWidth+spaceShrink,
+                                fontName, fontSize, word, wordWidth, newWidth, limWidth,
                                     uriWasteReduce if hyOk else False,
                                     embeddedHyphenation and hyOk, hymwl)
                         if hsw:
                             words[0:0] = hsw
                             self._hyphenations += 1
+                            forcedSplit = 1
                             continue
-                    if splitLongWords and not isinstance(word,_SplitWord):
+                        elif hyphenation2 and len(cLine):
+                            hsw = _hyphenateWord(hyphenator if hyOk else None,
+                                fontName, fontSize, word, wordWidth, wordWidth, maxWidth,
+                                    uriWasteReduce if hyOk else False,
+                                    embeddedHyphenation and hyOk, hymwl)
+                            if hsw:
+                                words[0:0] = [word]
+                                forcedSplit = 1
+                                newWidth = currentWidth
+                                word = None
+                    if splitLongWords and not (isinstance(word,_SplitWord) or forcedSplit):
                         nmw = min(lineno,maxlineno)
                         if wordWidth>max(maxWidths[nmw:nmw+1]):
                             #a long word
-                            words[0:0] = _splitWord(word,maxWidth-spaceWidth-currentWidth,maxWidths,lineno,fontName,fontSize,self.encoding)
+                            words[0:0] = _splitWord(word,currentWidth+spaceWidth,maxWidths,lineno,fontName,fontSize,self.encoding)
                             self._splitLongWordCount += 1
+                            forcedSplit = 1
                             continue
-                if newWidth <= (maxWidth+spaceShrink) or not len(cLine):
+                if newWidth<=limWidth or not len(cLine) or forcedSplit:
                     # fit one more on this line
-                    cLine.append(word)
-                    currentWidth = newWidth
-                    spaceShrink += dSpaceShrink
+                    if word: cLine.append(word)
+                    #print(f's: |line|={len(cLine)} {newWidth=} spaceShrink={limWidth-maxWidth}')
+                    if forcedSplit:
+                        forcedSplit = 0
+                        if newWidth > self._width_max: self._width_max = newWidth
+                        lines.append((maxWidth - newWidth, cLine))
+                        cLine = []
+                        currentWidth = -spaceWidth
+                        lineno += 1
+                        maxWidth = maxWidths[min(maxlineno,lineno)]
+                    else:
+                        currentWidth = newWidth
                 else:
                     if currentWidth > self._width_max: self._width_max = currentWidth
                     #end of line
                     lines.append((maxWidth - currentWidth, cLine))
                     cLine = [word]
-                    spaceShrink = 0
                     currentWidth = wordWidth
                     lineno += 1
                     maxWidth = maxWidths[min(maxlineno,lineno)]
@@ -1883,7 +2203,7 @@ class Paragraph(Flowable):
                 fontSize = f.fontSize
 
                 if not words:
-                    n = dSpaceShrink = spaceShrink = spaceWidth = currentWidth = 0
+                    n = spaceWidth = currentWidth = 0
                     maxSize = fontSize
                     maxAscent, minDescent = getAscentDescent(fontName,fontSize)
 
@@ -1897,28 +2217,69 @@ class Paragraph(Flowable):
                 #test to see if this frag is a line break. If it is we will only act on it
                 #if the current width is non-negative or the previous thing was a deliberate lineBreak
                 lineBreak = f._fkind==_FK_BREAK
-                if not lineBreak and newWidth>(maxWidth+spaceShrink) and not isinstance(w,_SplitFragH):
-                    if attemptHyphenation:
+                limWidth = maxWidth
+                if spaceShrinkage:
+                    spaceShrink = spaceWidth
+                    for wi in words:
+                        if wi._fkind==_FK_TEXT:
+                            ns = wi.text.count(' ')
+                            if ns:
+                                spaceShrink += ns*stringWidth(' ',wi.fontName,wi.fontSize)
+                    spaceShrink *= spaceShrinkage
+                    limWidth += spaceShrink
+                #print(f'c: {currentWidth=} {spaceShrink=} {newWidth=} {limWidth=} {newWidth>(maxWidth+spaceShrink)} cond={not lineBreak and newWidth>limWidth and not isinstance(w,_SplitFragH) and not hasattr(f,"cbDefn")} word={w[1][1]}')
+                if not lineBreak and newWidth>limWidth and not isinstance(w,_SplitFragH) and not hasattr(f,'cbDefn'):
+                    if isinstance(w,_SHYWord):
+                        hsw = w.shyphenate(newWidth, limWidth)
+                        if hsw:
+                            _words[0:0] = hsw
+                            _words.insert(1,_InjectedFrag([0,(f.clone(_fkind=_FK_BREAK,text=''),'')]))
+                            FW.pop(-1)  #remove this as we are doing this one again
+                            self._hyphenations += 1
+                            continue
+                        elif len(FW)>1: #only if we are not the first word on the line
+                            nMW = maxWidths[min(maxlineno,lineno)]  #next maxWidth or current one
+                            if hyphenation2 or w._fsww+1e-8<=nMW:
+                                hsw = w.shyphenate(wordWidth, nMW)
+                                if hsw:
+                                    _words[0:0] = [_InjectedFrag([0,(f.clone(_fkind=_FK_BREAK,text=''),'')]),w]
+                                    FW.pop(-1)  #remove this as we are doing this one again
+                                    continue
+                        #else: try to split an overlong word
+                    elif attemptHyphenation:
                         hyOk = not getattr(f,'nobr',False)
                         hsw = _hyphenateFragWord(hyphenator if hyOk else None,
-                                    w,newWidth,maxWidth+spaceShrink,
+                                    w,newWidth,limWidth,
                                     uriWasteReduce if hyOk else False,
                                     embeddedHyphenation and hyOk, hymwl)
                         if hsw:
                             _words[0:0] = hsw
+                            _words.insert(1,_InjectedFrag([0,(f.clone(_fkind=_FK_BREAK,text=''),'')]))
                             FW.pop(-1)  #remove this as we are doing this one again
                             self._hyphenations += 1
                             continue
+                        elif hyphenation2 and len(FW)>1:
+                            hsw = _hyphenateFragWord(hyphenator if hyOk else None,
+                                        w,wordWidth,maxWidth,
+                                        uriWasteReduce if hyOk else False,
+                                        embeddedHyphenation and hyOk, hymwl)
+                            if hsw:
+                                _words[0:0] = [_InjectedFrag([0,(f.clone(_fkind=_FK_BREAK,text=''),'')]),w]
+                                FW.pop(-1)  #remove this as we are doing this one again
+                                continue
+                        #else: try to split an overlong word
                     if splitLongWords and not isinstance(w,_SplitFrag):
                         nmw = min(lineno,maxlineno)
                         if wordWidth>max(maxWidths[nmw:nmw+1]):
                             #a long word
                             _words[0:0] = _splitFragWord(w,maxWidth-spaceWidth-currentWidth,maxWidths,lineno)
+                            _words.insert(1,_InjectedFrag([0,(f.clone(_fkind=_FK_BREAK,text=''),'')]))
                             FW.pop(-1)  #remove this as we are doing this one again
                             self._splitLongWordCount += 1
                             continue
-                endLine = (newWidth>(maxWidth+spaceShrink) and n>0) or lineBreak
+                endLine = (newWidth>limWidth and n>0) or lineBreak
                 if not endLine:
+                    #print(f'c: |line|={len(words)} {newWidth=} spaceShrink={limWidth-maxWidth}')
                     if lineBreak: continue      #throw it away
                     nText = w[1][1]
                     if nText: n += 1
@@ -1946,7 +2307,6 @@ class Paragraph(Flowable):
                                 if wi._fkind==_FK_TEXT:
                                     if not wi.text.endswith(' '):
                                         wi.text += ' '
-                                        spaceShrink += dSpaceShrink
                                     break
                         g = f.clone()
                         words.append(g)
@@ -1954,14 +2314,12 @@ class Paragraph(Flowable):
                     elif spaceWidth:
                         if not g.text.endswith(' '):
                             g.text += ' ' + nText
-                            spaceShrink += dSpaceShrink
                         else:
                             g.text += nText
                     else:
                         g.text += nText
 
                     spaceWidth = stringWidth(' ',fontName,fontSize) if isinstance(w,_HSFrag) else 0 #of the space following this word
-                    dSpaceShrink = spaceWidth*spaceShrinkage
 
                     ni = 0
                     for i in w[2:]:
@@ -1983,18 +2341,21 @@ class Paragraph(Flowable):
                     if not nText and ni:
                         #one bit at least of the word was real
                         n+=1
-
+                    #print(f'{n=} words={[_.text for _ in words]!r}')
                     currentWidth = newWidth
                 else:  #either it won't fit, or it's a lineBreak tag
                     if lineBreak:
                         g = f.clone()
                         #del g.lineBreak
                         words.append(g)
+                        llb = njlbv and not isinstance(w,_InjectedFrag)
+                    else:
+                        llb = False
 
                     if currentWidth>self._width_max: self._width_max = currentWidth
                     #end of line
                     lines.append(FragLine(extraSpace=maxWidth-currentWidth, wordCount=n,
-                                        lineBreak=lineBreak and njlbv, words=words, fontSize=maxSize, ascent=maxAscent, descent=minDescent, maxWidth=maxWidth,
+                                        lineBreak=llb, words=words, fontSize=maxSize, ascent=maxAscent, descent=minDescent, maxWidth=maxWidth,
                                         sFW=sFW))
                     sFW = len(FW)-1
 
@@ -2010,7 +2371,6 @@ class Paragraph(Flowable):
                     dSpaceShrink = spaceWidth*spaceShrinkage
                     currentWidth = wordWidth
                     n = 1
-                    spaceShrink = 0
                     g = f.clone()
                     maxSize = g.fontSize
                     if calcBounds:
@@ -2071,7 +2431,6 @@ class Paragraph(Flowable):
             else:
                 text = ''.join(getattr(f,'words',[]))
 
-            from reportlab.lib.textsplit import wordSplit
             lines = wordSplit(text, maxWidths, f.fontName, f.fontSize)
             #the paragraph drawing routine assumes multiple frags per line, so we need an
             #extra list like this
@@ -2157,23 +2516,25 @@ class Paragraph(Flowable):
             lim = nLines-1
             noJustifyLast = not getattr(self,'_JustifyLast',False)
             jllwc = style.justifyLastLine
+            isRTL = style.wordWrap=='RTL'
+            bRTL = isRTL and self._wrapWidths or False
 
             if blPara.kind==0:
                 if alignment == TA_LEFT:
                     dpl = _leftDrawParaLine
                 elif alignment == TA_CENTER:
                     dpl = _centerDrawParaLine
-                elif self.style.alignment == TA_RIGHT:
+                elif alignment == TA_RIGHT:
                     dpl = _rightDrawParaLine
-                elif self.style.alignment == TA_JUSTIFY:
-                    dpl = _justifyDrawParaLine
+                elif alignment == TA_JUSTIFY:
+                    dpl = _justifyDrawParaLineRTL if isRTL else _justifyDrawParaLine
                 f = blPara
                 if paraFontSizeHeightOffset:
                     cur_y = self.height - f.fontSize
                 else:
                     cur_y = self.height - getattr(f,'ascent',f.fontSize)
                 if bulletText:
-                    offset = _drawBullet(canvas,offset,cur_y,bulletText,style,rtl=style.wordWrap=='RTL' and self._wrapWidths or False)
+                    offset = _drawBullet(canvas,offset,cur_y,bulletText,style,rtl=bRTL)
 
                 #set up the font etc.
                 canvas.setFillColor(f.textColor)
@@ -2196,10 +2557,10 @@ class Paragraph(Flowable):
                 if lastLine and jllwc and len(words)>jllwc:
                     lastLine=False
                 t_off = dpl( tx, offset, ws, words, lastLine)
-                if f.us_lines or f.link or style.endDots:
+                if f.us_lines or f.link:# or style.endDots:
                     tx._do_line = MethodType(_do_line,tx)
                     tx.xs = xs = tx.XtraState = ABag()
-                    tx._defaultLineWidth = canvas._lineWidth
+                    _setTXLineProps(tx, canvas, style)
                     xs.cur_y = cur_y
                     xs.f = f
                     xs.style = style
@@ -2208,14 +2569,14 @@ class Paragraph(Flowable):
                     xs.textColor = f.textColor
                     xs.backColors = []
                     dx = t_off+leftIndent
-                    if dpl!=_justifyDrawParaLine: ws = 0
+                    if alignment!=TA_JUSTIFY or lastLine: ws = 0
                     if f.us_lines:
                         _do_under_line(0, dx, ws, tx, f.us_lines)
                     if f.link: _do_link_line(0, dx, ws, tx)
-                    if lastLine and style.endDots and dpl!=_rightDrawParaLine: _do_dots(0, dx, ws, xs, tx, dpl)
+                    #if lastLine and style.endDots and dpl!=_rightDrawParaLine: _do_dots(0, dx, ws, xs, tx, dpl)
 
                     #now the middle of the paragraph, aligned with the left margin which is our origin.
-                    for i in xrange(1, nLines):
+                    for i in range(1, nLines):
                         ws = lines[i][0]
                         words = lines[i][1]
                         lastLine = noJustifyLast and i==lim
@@ -2223,20 +2584,20 @@ class Paragraph(Flowable):
                             lastLine=False
                         t_off = dpl( tx, _offsets[i], ws, words, lastLine)
                         dx = t_off+leftIndent
-                        if dpl!=_justifyDrawParaLine: ws = 0
+                        if alignment!=TA_JUSTIFY or lastLine: ws = 0
                         if f.us_lines:
                             _do_under_line(i, t_off, ws, tx, f.us_lines)
                         if f.link: _do_link_line(i, dx, ws, tx)
-                        if lastLine and style.endDots and dpl!=_rightDrawParaLine: _do_dots(i, dx, ws, xs, tx, dpl)
+                        #if lastLine and style.endDots and dpl!=_rightDrawParaLine: _do_dots(i, dx, ws, xs, tx, dpl)
                 else:
-                    for i in xrange(1, nLines):
+                    for i in range(1, nLines):
                         words = lines[i][1]
                         lastLine = noJustifyLast and i==lim
                         if lastLine and jllwc and len(words)>jllwc:
                             lastLine=False
                         dpl( tx, _offsets[i], lines[i][0], words, lastLine)
             else:
-                if self.style.wordWrap == 'RTL':
+                if isRTL:
                     for line in lines:
                         line.words = line.words[::-1]
                 f = lines[0]
@@ -2248,26 +2609,22 @@ class Paragraph(Flowable):
                 dpl = _leftDrawParaLineX
                 if bulletText:
                     oo = offset
-                    offset = _drawBullet(canvas,offset,cur_y,bulletText,style, rtl=style.wordWrap=='RTL' and self._wrapWidths or False)
+                    offset = _drawBullet(canvas,offset,cur_y,bulletText,style, rtl=bRTL)
                 if alignment == TA_LEFT:
                     dpl = _leftDrawParaLineX
                 elif alignment == TA_CENTER:
                     dpl = _centerDrawParaLineX
-                elif self.style.alignment == TA_RIGHT:
+                elif alignment == TA_RIGHT:
                     dpl = _rightDrawParaLineX
-                elif self.style.alignment == TA_JUSTIFY:
-                    dpl = _justifyDrawParaLineX
+                elif alignment == TA_JUSTIFY:
+                    dpl = _justifyDrawParaLineXRTL if isRTL else _justifyDrawParaLineX
                 else:
                     raise ValueError("bad align %s" % repr(alignment))
 
                 #set up the font etc.
                 tx = self.beginText(cur_x, cur_y)
                 tx.preformatted = 'preformatted' in self.__class__.__name__.lower()
-                tx._defaultLineWidth = canvas._lineWidth
-                tx._underlineWidth = getattr(style,'underlineWidth','')
-                tx._underlineOffset = getattr(style,'underlineOffset','') or '-0.125f'
-                tx._strikeWidth = getattr(style,'strikeWidth','')
-                tx._strikeOffset = getattr(style,'strikeOffset','') or '0.25f'
+                _setTXLineProps(tx, canvas, style)
                 tx._do_line = MethodType(_do_line,tx)
                 # set the paragraph direction
                 tx.direction = self.style.wordWrap
@@ -2299,7 +2656,7 @@ class Paragraph(Flowable):
                 _do_post_text(tx)
 
                 #now the middle of the paragraph, aligned with the left margin which is our origin.
-                for i in xrange(1, nLines):
+                for i in range(1, nLines):
                     line = lines[i]
                     lastLine = noJustifyLast and i==lim
                     if lastLine and jllwc and line.wordCount>jllwc:
@@ -2377,7 +2734,7 @@ if __name__=='__main__':    #NORUNTESTS
                 words = line[1]
             nwords = len(words)
             outw('line%d: %d(%s)\n  ' % (l,nwords,str(getattr(line,'wordCount','Unknown'))))
-            for w in xrange(nwords):
+            for w in range(nwords):
                 outw(" %d:'%s'"%(w,getattr(words[w],'text',words[w])))
             print()
 
@@ -2392,7 +2749,7 @@ if __name__=='__main__':    #NORUNTESTS
         print('dumpParagraphFrags(<Paragraph @ %d>) minWidth() = %.2f' % (id(P), P.minWidth()))
         frags = P.frags
         n =len(frags)
-        for l in xrange(n):
+        for l in range(n):
             print("frag%d: '%s' %s" % (l, frags[l].text,' '.join(['%s=%s' % (k,getattr(frags[l],k)) for k in frags[l].__dict__ if k!=text])))
 
         outw = sys.stdout.write
@@ -2405,6 +2762,25 @@ if __name__=='__main__':    #NORUNTESTS
                 outw(' (%s)' % fragDump(w))
             print()
             l += 1
+
+    def dumpProcessedFrags(P,label='processed_frags'):
+        if isinstance(P2.frags[0],list):
+            _F = {}
+            _S = [].append
+            def _showWord(w):
+                t = [].append
+                for _ in w[1:]:
+                    fid = id(_[0])
+                    if fid not in _F:
+                        _F[fid] = (len(_F),_[0])
+                    t('(__frag_%s__, %r)' % (_F[fid][0],_[1]))
+                return '\x20\x20%s([%s, %s]),' % (w.__class__.__name__, w[0], ', '.join(t.__self__))
+            for _ in P2.frags:
+                _S(_showWord(_))
+            print('from reportlab.platypus.paragraph import _HSFrag, _SplitFragHS, _SplitFragHY, _SplitFrag, _getFragWords\nfrom reportlab.platypus.paraparser import ParaFrag\nfrom reportlab.lib.colors import Color')
+            print('\n'.join(('__frag_%s__ = %r' % _ for _ in sorted(_F.values()))))
+            print('%s=[\n%s\x20\x20]' % (processed_frags,'\n'.join(_S.__self__)))
+            print('print(_getFragWords(processed_frags))')
 
 
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -2468,7 +2844,7 @@ umfassend zu sein."""
         dumpParagraphLines(P)
 
     if flagged(4):
-        text='''Die eingebaute Funktion <font name=Courier>range(i, j [, stride])</font><onDraw name=myIndex label="eingebaute Funktionen::range()"><onDraw name=myIndex label="range() (Funktion)"><onDraw name=myIndex label="Funktionen::range()"> erzeugt eine Liste von Ganzzahlen und f&#xfc;llt sie mit Werten <font name=Courier>k</font>, f&#xfc;r die gilt: <font name=Courier>i &lt;= k &lt; j</font>. Man kann auch eine optionale Schrittweite angeben. Die eingebaute Funktion <font name=Courier>xrange()</font><onDraw name=myIndex label="eingebaute Funktionen::xrange()"><onDraw name=myIndex label="xrange() (Funktion)"><onDraw name=myIndex label="Funktionen::xrange()"> erf&#xfc;llt einen &#xe4;hnlichen Zweck, gibt aber eine unver&#xe4;nderliche Sequenz vom Typ <font name=Courier>XRangeType</font><onDraw name=myIndex label="XRangeType"> zur&#xfc;ck. Anstatt alle Werte in der Liste abzuspeichern, berechnet diese Liste ihre Werte, wann immer sie angefordert werden. Das ist sehr viel speicherschonender, wenn mit sehr langen Listen von Ganzzahlen gearbeitet wird. <font name=Courier>XRangeType</font> kennt eine einzige Methode, <font name=Courier>s.tolist()</font><onDraw name=myIndex label="XRangeType::tolist() (Methode)"><onDraw name=myIndex label="s.tolist() (Methode)"><onDraw name=myIndex label="Methoden::s.tolist()">, die seine Werte in eine Liste umwandelt.'''
+        text='''Die eingebaute Funktion <font name=Courier>range(i, j [, stride])</font><onDraw name=myIndex label="eingebaute Funktionen::range()"><onDraw name=myIndex label="range() (Funktion)"><onDraw name=myIndex label="Funktionen::range()"> erzeugt eine Liste von Ganzzahlen und f&#xfc;llt sie mit Werten <font name=Courier>k</font>, f&#xfc;r die gilt: <font name=Courier>i &lt;= k &lt; j</font>. Man kann auch eine optionale Schrittweite angeben. Die eingebaute Funktion <font name=Courier>range()</font><onDraw name=myIndex label="eingebaute Funktionen::range()"><onDraw name=myIndex label="range() (Funktion)"><onDraw name=myIndex label="Funktionen::range()"> erf&#xfc;llt einen &#xe4;hnlichen Zweck, gibt aber eine unver&#xe4;nderliche Sequenz vom Typ <font name=Courier>RangeType</font><onDraw name=myIndex label="RangeType"> zur&#xfc;ck. Anstatt alle Werte in der Liste abzuspeichern, berechnet diese Liste ihre Werte, wann immer sie angefordert werden. Das ist sehr viel speicherschonender, wenn mit sehr langen Listen von Ganzzahlen gearbeitet wird. <font name=Courier>RangeType</font> kennt eine einzige Methode, <font name=Courier>s.tolist()</font><onDraw name=myIndex label="RangeType::tolist() (Methode)"><onDraw name=myIndex label="s.tolist() (Methode)"><onDraw name=myIndex label="Methoden::s.tolist()">, die seine Werte in eine Liste umwandelt.'''
         aW = 420
         aH = 64.4
         P=Paragraph(text, B)

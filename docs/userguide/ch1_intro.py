@@ -260,11 +260,11 @@ for and Bitstream Inc. for the Vera fonts.""")
 heading2("Installation and Setup")
 
 disc("""To avoid duplication, the installation instructions are kept in the README file
-in our distribution, which can be viewed online at ^http://bitbucket.org/rptlab/reportlab/^""")
+in our distribution, which can be viewed online at ^https://hg.reportlab.com/hg-public/reportlab/^""")
 
-disc("""This release (3.0) of ReportLab requires Python versions 2.7, 3.3 or higher.  
-	If you need to use Python 2.5 or 2.6, please use the latest ReportLab 2.x package.
-""")
+disc("""This release (%s) of ReportLab requires Python versions %s.%s+ or higher.  
+	If you need to use Python 2, please use the latest ReportLab 2.7 package that is suitable for you.
+""" % ((reportlab.Version,)+reportlab.__min_python_version__))
 
 
 
@@ -302,7 +302,7 @@ From there you can also browse through the group's archives
 and contributions.  The mailing list is
 the place to report bugs and get support. """)
 
-disc("""The code now lives on BitBucket ($http://bitbucket.org/rptlab/reportlab/$)
+disc("""The code now lives on our website ($http://hg.reportlab.com/hg-public/reportlab/$)
 in a Mercurial repository, along with an issue tracker and wiki.  Everyone should
 feel free to contribute, but if you are working actively on some improvements
 or want to draw attention to an issue, please use the mailing list to let us know.""")
@@ -311,8 +311,13 @@ or want to draw attention to an issue, please use the mailing list to let us kno
 
 heading2("Site Configuration")
 disc("""There are a number of options which most likely need to be configured globally for a site.
-The python script module $reportlab/rl_config.py$ may be edited to change the values of several
-important sitewide properties.""")
+The python script module $reportlab/rl_config.py$ aggregates the various settings files. You may want inspect the file $reportlab/$rl_settings.py$ which
+contains defaults for the currently used variables. There are several overrides for $rl_settings"
+modules $reportlab.local_rl_settings$, $reportlab_settings$ (a script file anywhere on the python path)
+and finally the file $~/.reportlab_settings$ (note no .py). Temporary changes can be made using evironment variables which
+are the variables from $rl_settings.py" prefixed with $RL_$ eg $RL_verbose=1$.
+""")
+heading3("Useful rl_config variables")
 bullet("""verbose: set to integer values to control diagnostic output.""")
 bullet("""shapeChecking: set this to zero to turn off a lot of error checking in the graphics modules""")
 bullet("""defaultEncoding: set this to WinAnsiEncoding or MacRomanEncoding.""")
@@ -327,10 +332,16 @@ may be queried for information on TrueType fonts""")
 bullet("""CMapSearchPath: this is a python list of strings representing directories that
 may be queried for information on font code maps.""")
 bullet("""showBoundary: set to non-zero to get boundary lines drawn.""")
-bullet("""ZLIB_WARNINGS: set to non-zero to get warnings if the Python compression extension is not found.""")
-bullet("""pageComression: set to non-zero to try and get compressed PDF.""")
+bullet("""pageCompression: set to non-zero to try and get compressed PDF.""")
 bullet("""allowtableBoundsErrors: set to 0 to force an error on very large Platypus table elements""")
 bullet("""emptyTableAction: Controls behaviour for empty tables, can be 'error' (default), 'indicate' or 'ignore'.""")
+bullet("""trustedHosts: if not $None$ a list of glob patterns of trusted hosts; these may be used in places like &lt;img&gt; tags in paragraph texts.""")
+bullet("""trustedSchemes: a list of allowed $URL$ schemes used with $trustedHosts$""")
+disc("""For the full list of variables see the file $reportlab/rl_settings.py$.""")
+heading3("Other modifications")
+disc("""More complex modifications to the reportlab toolkit environment may be made using one
+of the modules $rep[ortlab.local_rl_mods$ (.py script in reportlab folder),
+$reportlab_mods$ (.py file on the python path) or $~/.reportlab_mods$ (note no .py).""")
 
 heading2("Learning More About Python")
 
@@ -378,17 +389,16 @@ styles = getStyleSheet()
 indent0_style = styles['Indent0']
 indent1_style = styles['Indent1']
 
-heading2("Goals for the 3.x release series")
+heading2("Goals of the 3.x release series")
 disc("""ReportLab 3.0 has been produced to help in the migration to Python 3.x.  Python 3.x will
 be standard in future Ubuntu releases and is gaining popularity, and a good proportion
 of major Python packages now run on Python 3.  """)
 
 
-
-bullet("""Python 3.x compatibility.  A single line of code should run on 2.7 and 3.3""")
-bullet(""" __init__.py restricts to 2.7 or >=3.3""")
+bullet("""Python 3.x compatibility.  A single line of code should run on 3.6 and higher""")
+bullet(""" __init__.py restricts to >=3.6""")
 bullet("""__init__.py allow the import of on optional reportlab.local_rl_mods to allow monkey patching etc.""")
-bullet("""rl_config now imports rl_settings & optionally local_rl_settings""")
+bullet("""rl_config now imports rl_settings, optionally local_rl_settings, reportlab_settings.py & finally ~/.reportlab_settings""")
 bullet("""ReportLab C extensions now live inside reportlab; _rl_accel is no longer required. All _rl_accel imports now pass through reportlab.lib.rl_accel""")
 bullet("""xmllib is gone, alongside the paraparser stuff that caused issues in favour of HTMLParser.""")
 bullet("""some obsolete C extensions (sgmlop and pyHnj) are gone""")

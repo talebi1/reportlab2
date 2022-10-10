@@ -10,7 +10,19 @@ import os, glob, sys, traceback, unittest
 #run 'setup.py tests', but won't be if you CD into the tests
 #directory and run this directly
 if __name__=='__main__':
+    if '--post-install' in sys.argv:
+        while '--post-install' in sys.argv: sys.argv.remove('--post-install')
+        import reportlab
+        from reportlab import rl_config
+        d = os.path.join(os.path.dirname(reportlab.__file__),'fonts')
+        for x in ('T1SearchPath','TTFSearchPath','CMapSearchPath'):
+            P = getattr(rl_config,x)
+            if d not in P:
+                P.insert(0,d)
+                print('+++++ inserted %r into rl_config.%s' % (d,x))
+        del reportlab, rl_config, d, x, P
     P=[]
+    os.environ['RL_trustedHosts'] = '*.reportlab.com'
     try:
         from reportlab.lib.testutils import setOutDir
     except ImportError:
@@ -36,7 +48,7 @@ if __name__=='__main__':
             sys.path.insert(0,topDir)
             P.append(topDir)
     del topDir
-    from reportlab.lib.testutils import GlobDirectoryWalker, outputfile, printLocation
+    from reportlab.lib.testutils import GlobDirectoryWalker, RestrictedGlobDirectoryWalker, outputfile, printLocation
     pp = os.environ.get('PYTHONPATH','')
     if pp: P.append(pp)
     del pp
@@ -48,7 +60,7 @@ def makeSuite(folder, exclude=[],nonImportable=[],pattern='test_*.py'):
     allTests = unittest.TestSuite()
 
     if os.path.isdir(folder): sys.path.insert(0, folder)
-    for filename in GlobDirectoryWalker(folder, pattern):
+    for filename in RestrictedGlobDirectoryWalker(folder, pattern,['*/charts-out/*.py']):
         modname = os.path.splitext(os.path.basename(filename))[0]
         if modname not in exclude:
             try:
@@ -91,9 +103,11 @@ def main(pattern='test_*.py'):
     cleanup(outputfile(''))
     NI = []
     cleanOnly = '--clean' in sys.argv
+    verbosity = [_ for _ in sys.argv if _.startswith('--verbosity=')]
+    verbosity = int(verbosity[-1][12:]) if verbosity else 1
     if not cleanOnly:
         testSuite = makeSuite(folder,nonImportable=NI,pattern=pattern+(not haveSRC and 'c' or ''))
-        result = unittest.TextTestRunner().run(testSuite)
+        result = unittest.TextTestRunner(verbosity=verbosity).run(testSuite)
     else:
         result = None
 
