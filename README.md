@@ -1,4 +1,4 @@
-This repository is a fork of [reportlab 3.6.11](https://pypi.org/project/reportlab/) with added AES-256 PDF encryption
+This repository is a fork of [reportlab 3.6.11](https://pypi.org/project/reportlab/) with faster (2X-3X) AES-256 PDF encryption
 
 ```
 pip install reportlab2
