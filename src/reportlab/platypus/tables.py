@@ -170,7 +170,7 @@ def _quadrantDef(xpos, ypos, corner, r, kind=0, direction='left-right', m=0.4472
         xlo,ylo = corner
         P = [(xlo, ylo + r),(xlo, ylo + t), (xlo + t, ylo), (xlo + r, ylo)]
     else:
-        raise ValueError('Unknown quadrant position %s' % repr((xpos,ypos)))
+        raise ValueError(f'Unknown quadrant position (xpos,ypos)={(xpos,ypos)!r}')
     if direction=='left-right' and P[0][0]>P[-1][0] or direction=='bottom-top' and P[0][1]>P[-1][1]:
         P.reverse()
     P = _calcBezierPoints(P, kind)
@@ -215,7 +215,7 @@ def _convert2int(value, map, low, high, name, cmd):
             if low<=ivalue<=high: return ivalue
         except:
             pass
-    raise ValueError('Bad %s value %s in %s'%(name,value,ascii(cmd)))
+    raise ValueError(f'Bad {name} value {value} in {cmd!a}')
 
 def _endswith(obj,s):
     try:
@@ -246,22 +246,32 @@ def spanFixDim(V0,V,spanCons,lim=None,FUZZ=rl_config._FUZZ):
 class _ExpandedCellTuple(tuple):
     pass
 
+class _ExpandedCellTupleEx(tuple):
+    def __new__(cls,seq,tagType,altText,extras):
+        self = tuple.__new__(cls,seq)
+        self.tagType = tagType
+        self.altText = altText
+        self.extras = extras
+        return self
 
 RoundingRectDef = namedtuple('RoundingRectDefs','x0 y0 w h x1 y1 ar SL')
 RoundingRectLine = namedtuple('RoundingRectLine','xs ys xe ye weight color cap dash join')
 
+_SPECIALROWS=("splitfirst", "splitlast", "inrowsplitstart","inrowsplitend")
 class Table(Flowable):
     def __init__(self, data, colWidths=None, rowHeights=None, style=None,
                 repeatRows=0, repeatCols=0, splitByRow=1, splitInRow=0, emptyTableAction=None, ident=None,
                 hAlign=None,vAlign=None, normalizedData=0, cellStyles=None, rowSplitRange=None,
                 spaceBefore=None,spaceAfter=None, longTableOptimize=None, minRowHeights=None,
                 cornerRadii=__UNSET__, #or [topLeft, topRight, bottomLeft bottomRight]
+                renderCB=None,
                 ):
         self.ident = ident
         self.hAlign = hAlign or 'CENTER'
         self.vAlign = vAlign or 'MIDDLE'
         if not isinstance(data,(tuple,list)):
             raise ValueError("%s invalid data type" % self.identity())
+        self._renderCB = renderCB
         self._nrows = nrows = len(data)
         self._cellvalues = []
         _seqCW = isinstance(colWidths,(tuple,list))
@@ -274,7 +284,7 @@ class Table(Flowable):
                                     if longTableOptimize is None else longTableOptimize)
         if not (nrows and ncols):
             if emptyTableAction=='error':
-                raise ValueError("%s must have at least a row and column" % self.identity())
+                raise ValueError(f'{self.identity()} must have at least a row and column')
             elif emptyTableAction=='indicate':
                 self.__class__ = Preformatted
                 global _emptyTableStyle
@@ -286,7 +296,7 @@ class Table(Flowable):
             elif emptyTableAction=='ignore':
                 self.__class__ = NullActionFlowable
             else:
-                raise ValueError('%s bad emptyTableAction: "%s"' % (self.identity(),emptyTableAction))
+                raise ValueError(f'{self.identitiy()} bad emptyTableAction: {emptyTableAction!a}')
             return
 
         # we need a cleanup pass to ensure data is strings - non-unicode and non-null
@@ -303,17 +313,17 @@ class Table(Flowable):
                 else:
                     colWidths = colWidths[:ncols]
             else:
-                raise ValueError("%s data error - %d columns in data but %d in column widths" % (self.identity(),ncols, len(colWidths)))
+                raise ValueError(f'{self.identity()} data error - {ncols} columns in data but {len(colWidths)} column widths')
         if not _seqRH: rowHeights = nrows*[rowHeights]
         elif len(rowHeights) != nrows:
-            raise ValueError("%s data error - %d rows in data but %d in row heights" % (self.identity(),nrows, len(rowHeights)))
+            raise ValueError(f'{self.identity()} data error - {nrows} rows in data but {len(rowHeights)} row heights')
         for i,d in enumerate(data):
             n = len(d)
             if n!=ncols:
                 if rl_config.allowShortTableRows and isinstance(d,list):
                     d[n:] = (ncols-n)*['']
                 else:
-                    raise ValueError("%s expected %d not %d columns in row %d!" % (self.identity(),ncols,n,i))
+                    raise ValueError(f'{self.identity()} expected {ncols} not {n} columns in row {i}!')
         self._rowHeights = self._argH = rowHeights
         self._colWidths = self._argW = colWidths
         if cellStyles is None:
@@ -331,7 +341,8 @@ class Table(Flowable):
         self._linecmds = []
         self._spanCmds = []
         self._nosplitCmds = []
-        self._srflcmds = []
+        self._srflcmds = [] # split first last
+        self._sircmds = []  # split in row special commands
         # NB repeatRows can be a list or tuple eg (1,) repeats only the second row of a table
         # or an integer eg 2 to repeat both rows 0 & 1
         self.repeatRows = repeatRows
@@ -354,7 +365,7 @@ class Table(Flowable):
         if minRowHeights != None:
             lmrh = len(minRowHeights)
             if not lmrh:
-                raise ValueError("%s Supplied mismatching minimum row heights of length %d" % (self.identity(),lmrh))
+                raise ValueError('{self.idenity()} Supplied mismatching minimum row heights of length {lmrh}')
             elif lmrh<nrows:
                 minRowHeights = minRowHeights+(nrows-lmrh)*minRowHeights.__class__((0,))
         self._minRowHeights = minRowHeights
@@ -439,8 +450,11 @@ class Table(Flowable):
             else:
                 yield c
 
-    def _cellListProcess(self,C,aW,aH):
-        if not isinstance(C,_ExpandedCellTuple):
+    def _cellListProcess(self,v,aW,aH):
+        if isinstance(v,_ExpandedCellTuple):
+            C = v
+        else:
+            C = (v,) if isinstance(v,Flowable) else flatten(v)
             frame = None
             R = [].append
             for c in self._cellListIter(C,aW,aH):
@@ -455,7 +469,11 @@ class Table(Flowable):
                     R(LIIndenter(c,leftIndent=frame._leftExtraIndent,rightIndent=frame._rightExtraIndent))
                 else:
                     R(c)
-            C = _ExpandedCellTuple(R.__self__)
+            if hasattr(v,'tagType'):
+                C = _ExpandedCellTupleEx(R.__self__,v.tagType,v.altText,v.extras)
+            else:
+                C = _ExpandedCellTuple(R.__self__)
+
         return C
 
     def _listCellGeom(self, V,w,s,W=None,H=None,aH=72000):
@@ -523,7 +541,7 @@ class Table(Flowable):
                     else:#work out size
                         t = self._elementWidth(v,s)
                         if t is None:
-                            raise ValueError("Flowable %s in cell(%d,%d) can't have auto width\n%s" % (v.identity(30),i,j,self.identity(30)))
+                            raise ValueError(f'Flowable {v.identity()} in cell({i},{j}) can\'t have auto width\n{self.identity(30)}')
                         t += s.leftPadding+s.rightPadding
                         if span:
                             c0 = span[0]
@@ -628,11 +646,9 @@ class Table(Flowable):
                         continue # don't count it, it's either occluded or unreliable
                     else:
                         if isinstance(v,(tuple,list,Flowable)):
-                            if isinstance(v,Flowable): v = (v,)
-                            else: v = flatten(v)
                             v = V[j] = self._cellListProcess(v,w,None)
                             if w is None and not self._canGetWidth(v):
-                                raise ValueError("Flowable %s in cell(%d,%d) can't have auto width in\n%s" % (v[0].identity(30),i,j,self.identity(30)))
+                                raise ValueError(f'Flowable {v[0].identity()} in cell({i},{j}) can\'t have auto width\n{self.identity(30)}')
                             if canv: canv._fontname, canv._fontsize, canv._leading = s.fontname, s.fontsize, s.leading or 1.2*s.fontsize
                             if ji in colSpanCells:
                                 if not span: continue
@@ -774,7 +790,7 @@ class Table(Flowable):
         and assign some best-guess values."""
 
         W = list(self._argW) # _calc_pc(self._argW,availWidth)
-        #verbose = 1
+        #_debug = getattr(self,'_debug',0)
         totalDefined = 0.0
         percentDefined = 0
         percentTotal = 0
@@ -792,7 +808,7 @@ class Table(Flowable):
             else:
                 assert isinstance(w,(int,float))
                 totalDefined = totalDefined + w
-        #if verbose: print('prelim width calculation.  %d columns, %d undefined width, %0.2f units remain' % (self._ncols, numberUndefined, availWidth - totalDefined))
+        #if _debug: print('prelim width calculation.  %d columns, %d undefined width, %0.2f units remain' % (self._ncols, numberUndefined, availWidth - totalDefined))
 
         #check columnwise in each None column to see if they are sizable.
         given = []
@@ -811,7 +827,7 @@ class Table(Flowable):
                     style = self._cellStyles[rowNo][colNo]
                     new = elementWidth(value,style) or 0
                     new += style.leftPadding+style.rightPadding
-                    #if verbose: print('[%d,%d] new=%r-->%r' % (rowNo,colNo,new - style.leftPadding+style.rightPadding, new))
+                    #if _debug: print('[%d,%d] new=%r-->%r' % (rowNo,colNo,new - style.leftPadding+style.rightPadding, new))
                     final = max(final, new)
                     siz = siz and self._canGetWidth(value) # irrelevant now?
                 if siz:
@@ -824,10 +840,10 @@ class Table(Flowable):
                 given.append(colNo)
         if len(given) == self._ncols:
             return
-        #if verbose: print('predefined width:   ',given)
-        #if verbose: print('uncomputable width: ',unsizeable)
-        #if verbose: print('computable width:   ',sizeable)
-        #if verbose: print('minimums=%r' % (list(sorted(list(minimums.items()))),))
+        #if _debug: print('predefined width: ',given)
+        #if _debug: print('uncomputable width: ',unsizeable)
+        #if _debug: print('computable width: ',sizeable)
+        #if _debug: print('minimums=%r' % (list(sorted(list(minimums.items()))),))
 
         # how much width is left:
         remaining = availWidth - (totalMinimum + totalDefined)
@@ -909,9 +925,38 @@ class Table(Flowable):
                     assert adjusted >= minimum
                     W[colNo] = adjusted
         else:
+            if percentTotal>0:
+                #transfer percentages to the defined cols
+                d = []
+                for colNo, w in minimums.items():
+                    if w.endswith('%'):
+                        W[colNo] = w = availWidth*float(w[:-1])/percentTotal
+                        totalDefined += w
+                        d.append(colNo)
+                for colNo in d:
+                    del minimums[colNo]
+                del d
+                totalMinimum = sum(minimums.values())
+                remaining = availWidth - (totalDefined + totalMinimum)
+            #if _debug: print(f'0:remaining={remaining} totalDefined={totalDefined}')
+            #if _debug: print(f'0:minimums={minimums}')
+            if remaining<0 and totalDefined*rl_config.defCWRF+remaining>=0:
+                adj = -remaining/totalDefined
+                for colNo, w in enumerate(W):
+                    if colNo not in minimums:
+                        dw = adj*w
+                        W[colNo] -= dw
+                        totalDefined -= dw
+                remaining = availWidth - (totalDefined + totalMinimum)
+                #if _debug: print(f'1:remaining={remaining} totalDefined={totalDefined}')
+                #if _debug: print(f'1:minimums={minimums}')
+                adj = 1
+            else:
+                remaining = availWidth - totalDefined
+                adj = 1 if remaining<=0 else remaining/totalMinimum
             for colNo, minimum in minimums.items():
-                W[colNo] = minimum
-        #if verbose: print('new widths are:', W)
+                W[colNo] = minimum * adj
+        #if _debug: print(f'new widths are: {W} sum={sum(W)} availWidth={availWidth}')
         self._argW = self._colWidths = W
         return W
 
@@ -1088,6 +1133,13 @@ class Table(Flowable):
         if not isinstance(tblstyle,TableStyle):
             tblstyle = TableStyle(tblstyle)
         for cmd in tblstyle.getCommands():
+            if len(cmd)>=3:
+                c, (sc,sr), (ec,er) = cmd[0:3]
+                if (isinstance(sc,str) or isinstance(ec,str)
+                    or (isinstance(sr,str) and sr not in _SPECIALROWS)
+                    or (isinstance(er,str) and er not in _SPECIALROWS)):
+                    raise ValueError(f'''bad style command {cmd!r} illegal of invalid string coordinate
+only rows may be strings with values in {_SPECIALROWS!r}''')
             self._addCommand(cmd)
         for k,v in tblstyle._opts.items():
             setattr(self,k,v)
@@ -1114,7 +1166,7 @@ class Table(Flowable):
         elif _isLineCommand(cmd):
             # we expect op, start, stop, weight, colour, cap, dashes, join
             cmd = list(cmd)
-            if len(cmd)<5: raise ValueError('bad line command '+ascii(cmd))
+            if len(cmd)<5: raise ValueError(f'bad line command {cmd!a}')
 
             #determine line cap value at position 5. This can be str or numeric.
             if len(cmd)<6:
@@ -1155,8 +1207,8 @@ class Table(Flowable):
             self._setCornerRadii(cmd[1])
         else:
             (op, (sc, sr), (ec, er)), values = cmd[:3] , cmd[3:]
-            if sr in ('splitfirst','splitlast'):
-                self._srflcmds.append(cmd)
+            if sr in _SPECIALROWS:
+                (self._srflcmds if sr[0]=='s' else self._sircmds).append(cmd)
             else:
                 sc, ec, sr, er = self.normCellRange(sc,ec,sr,er)
                 ec += 1
@@ -1188,7 +1240,7 @@ class Table(Flowable):
 
         try:
             for op, (sc,sr), (ec,er), weight, color, cap, dash, join, count, space in self._linecmds:
-                if isinstance(sr,strTypes) and sr.startswith('split'): continue
+                if isinstance(sr,strTypes) and sr in _SPECIALROWS: continue
                 if cap!=None and ccap!=cap:
                     canv.setLineCap(cap)
                     ccap = cap
@@ -1214,7 +1266,7 @@ class Table(Flowable):
         #we are only called from _drawLines which is one level up
         import sys
         op = sys._getframe(1).f_locals['op']
-        raise ValueError("Unknown line command '%s'" % op)
+        raise ValueError(f'Unknown line command {op!a}')
 
     def _drawGrid(self, start, end, weight, color, count, space):
         self._drawBox( start, end, weight, color, count, space)
@@ -1302,10 +1354,20 @@ class Table(Flowable):
         '''
         pass
 
-    def _cr_0(self,n,cmds,nr0,_srflMode=False):
+    def _cr_0(self,n,cmds,nr0,doInRowSplit, _srflMode=False):
+        #ths is used to modify/apply styles in splitIn row case
+        #for the first part of a split. 
+        ncols = self._ncols
         for c in cmds:
             (sc,sr), (ec,er) = c[1:3]
-            if sr in ('splitfirst','splitlast'):
+            if sr in _SPECIALROWS:
+                if sr[0]=='i':
+                    self._addCommand(c)             #re-append the command
+                    if sr=='inrowsplitstart' and doInRowSplit:
+                        if sc<0: sc+=ncols
+                        if ec<0: ec+=ncols
+                        self._addCommand((c[0],)+((sc, n-1), (ec, n-1))+tuple(c[3:]))
+                    continue
                 if not _srflMode: continue
                 self._addCommand(c)             #re-append the command
                 if sr=='splitfirst': continue
@@ -1315,12 +1377,20 @@ class Table(Flowable):
             if er>=n: er = n-1
             self._addCommand((c[0],)+((sc, sr), (ec, er))+tuple(c[3:]))
 
-    def _cr_1_1(self, n, nRows, repeatRows, cmds, _srflMode=False):
+    def _cr_1_1(self, n, nRows, repeatRows, cmds, doInRowSplit, _srflMode=False):
         nrr = len(repeatRows)
         rrS = set(repeatRows)
+        ncols = self._ncols
         for c in cmds:
             (sc,sr), (ec,er) = c[1:3]
-            if sr in ('splitfirst','splitlast'):
+            if sr in _SPECIALROWS:
+                if sr[0]=='i':
+                    self._addCommand(c)             #re-append the command
+                    if sr=='inrowsplitend' and doInRowSplit:
+                        if sc<0: sc+=ncols
+                        if ec<0: ec+=ncols
+                        self._addCommand((c[0],)+((sc, nrr), (ec, nrr))+tuple(c[3:]))
+                    continue
                 if not _srflMode: continue
                 self._addCommand(c)
                 if sr=='splitlast': continue
@@ -1348,10 +1418,17 @@ class Table(Flowable):
                 er = max(er-n,0)+nrr
                 self._rowSplitRange = sr,er
 
-    def _cr_1_0(self,n,cmds,_srflMode=False):
+    def _cr_1_0(self,n,cmds,doInRowSplit,_srflMode=False):
         for c in cmds:
             (sc,sr), (ec,er) = c[1:3]
-            if sr in ('splitfirst','splitlast'):
+            if sr in _SPECIALROWS:
+                if sr[0]=='i':
+                    self._addCommand(c)             #re-append the command
+                    if sr=='inrowsplitend' and doInRowSplit:
+                        if sc<0: sc+=ncols
+                        if ec<0: ec+=ncols
+                        self._addCommand((c[0],)+((sc, 0), (ec, 0))+tuple(c[3:]))
+                    continue
                 if not _srflMode: continue
                 self._addCommand(c)
                 if sr=='splitlast': continue
@@ -1459,13 +1536,18 @@ class Table(Flowable):
         A = []
         # hack up the line commands
         for op, (sc,sr), (ec,er), weight, color, cap, dash, join, count, space in self._linecmds:
-            if isinstance(sr,strTypes) and sr.startswith('split'):
+            if isinstance(sr,strTypes) and sr in _SPECIALROWS:
                 A.append((op,(sc,sr), (ec,sr), weight, color, cap, dash, join, count, space))
                 if sr=='splitlast':
                     sr = er = n-1
                 elif sr=='splitfirst':
                     sr = n
                     er = n
+                else:
+                    if sc < 0: sc += ncols
+                    if ec < 0: ec += ncols
+                    A[-1] = (op,(sc,sr), (ec,sr), weight, color, cap, dash, join, count, space)
+                    continue
 
             if sc < 0: sc += ncols
             if ec < 0: ec += ncols
@@ -1532,12 +1614,12 @@ class Table(Flowable):
         4. If er == sr == n and cmd is not line, increase er
 
         """
-        stretched = []
+        stretched = [].append
         for c in cmds:
             cmd, (sc,sr), (ec,er) = c[0:3]
 
-            if sr in ("splitlast", "splitfirst") or er in ("splitlast", "splitfirst"):
-                stretched.append(c)
+            if sr in _SPECIALROWS or er in _SPECIALROWS:
+                stretched(c)
                 continue
 
             if er < 0:
@@ -1554,9 +1636,9 @@ class Table(Flowable):
             if sr > n or (sr == n and cmd == "LINEBELOW"):
                 sr += 1
 
-            stretched.append((c[0], (sc,sr), (ec,er)) + c[3:])
+            stretched((cmd, (sc,sr), (ec,er)) + c[3:])
 
-        return stretched
+        return stretched.__self__
 
     def _splitRows(self,availHeight,doInRowSplit=0):
         # Get the split position. if we split between rows (doInRowSplit=0),
@@ -1755,12 +1837,15 @@ class Table(Flowable):
                     cellStyles=newCellStyles, ident=self.ident,
                     spaceBefore=getattr(self,'spaceBefore',None),
                     longTableOptimize=self._longTableOptimize,
-                    cornerRadii=getattr(self,'_cornerRadii',None))
+                    cornerRadii=getattr(self,'_cornerRadii',None),
+                    renderCB=getattr(self,'_renderCB',None),
+                    )
 
                 T._bkgrndcmds = bkgrndcmds
                 T._spanCmds = spanCmds
                 T._nosplitCmds = self._nosplitCmds
                 T._srflcmds = self._srflcmds
+                T._sircmds = self._sircmds
                 T._colpositions = self._colpositions
                 T._rowpositions = self._rowpositions
 
@@ -1920,13 +2005,16 @@ class Table(Flowable):
                 cellStyles=newCellStyles, ident=self.ident,
                 spaceBefore=getattr(self,'spaceBefore',None),
                 longTableOptimize=self._longTableOptimize,
-                cornerRadii=getattr(self,'_cornerRadii',None))
+                cornerRadii=getattr(self,'_cornerRadii',None),
+                renderCB=getattr(self,'_renderCB',None),
+                )
 
             T._linecmds = self._stretchCommands(n, self._linecmds, lim)
             T._bkgrndcmds = self._stretchCommands(n, self._bkgrndcmds, lim)
             T._spanCmds = self._stretchCommands(n, self._spanCmds, lim)
             T._nosplitCmds = self._stretchCommands(n, self._nosplitCmds, lim)
             T._srflcmds = self._stretchCommands(n, self._srflcmds, lim)
+            T._sircmds = self._stretchCommands(n, self._sircmds, lim)
             n = n + 1
 
         #we're going to split into two superRows
@@ -1939,23 +2027,26 @@ class Table(Flowable):
             splitH = T._argH
 
         cornerRadii = getattr(self,'_cornerRadii',None)
+        renderCB = getattr(self,'_renderCB',None)
         R0 = self.__class__( data[:n], colWidths=T._colWidths, rowHeights=splitH[:n],
                 repeatRows=repeatRows, repeatCols=repeatCols, splitByRow=self.splitByRow,
                 splitInRow=self.splitInRow, normalizedData=1, cellStyles=T._cellStyles[:n],
                 ident=ident,
                 spaceBefore=getattr(self,'spaceBefore',None),
                 longTableOptimize=lto,
-                cornerRadii=cornerRadii[:2] if cornerRadii else None)
+                cornerRadii=cornerRadii[:2] if cornerRadii else None,
+                renderCB=renderCB,
+                )
 
         nrows = T._nrows
         ncols = T._ncols
 
         _linecmds = T._splitLineCmds(n, doInRowSplit=doInRowSplit)
 
-        R0._cr_0(n,_linecmds,nrows)
-        R0._cr_0(n,T._bkgrndcmds,nrows,_srflMode=True)
-        R0._cr_0(n,T._spanCmds,nrows)
-        R0._cr_0(n,T._nosplitCmds,nrows)
+        R0._cr_0(n,_linecmds,nrows,doInRowSplit)
+        R0._cr_0(n,T._bkgrndcmds,nrows,doInRowSplit,_srflMode=True)
+        R0._cr_0(n,T._spanCmds,nrows,doInRowSplit)
+        R0._cr_0(n,T._nosplitCmds,nrows,doInRowSplit)
 
         for c in T._srflcmds:
             R0._addCommand(c)
@@ -1986,11 +2077,12 @@ class Table(Flowable):
                     spaceAfter=getattr(self,'spaceAfter',None),
                     longTableOptimize=lto,
                     cornerRadii = cornerRadii,
+                    renderCB = renderCB,
                     )
-            R1._cr_1_1(n,nrows,repeatRows,_linecmds)
-            R1._cr_1_1(n,nrows,repeatRows,T._bkgrndcmds,_srflMode=True)
-            R1._cr_1_1(n,nrows,repeatRows,T._spanCmds)
-            R1._cr_1_1(n,nrows,repeatRows,T._nosplitCmds)
+            R1._cr_1_1(n,nrows,repeatRows,_linecmds,doInRowSplit)
+            R1._cr_1_1(n,nrows,repeatRows,T._bkgrndcmds,doInRowSplit,_srflMode=True)
+            R1._cr_1_1(n,nrows,repeatRows,T._spanCmds,doInRowSplit)
+            R1._cr_1_1(n,nrows,repeatRows,T._nosplitCmds,doInRowSplit)
         else:
             #R1 = slelf.__class__(data[n:], self._argW, self._argH[n:],
             R1 = self.__class__(data[n:], colWidths=T._colWidths, rowHeights=splitH[n:],
@@ -2001,12 +2093,13 @@ class Table(Flowable):
                     spaceAfter=getattr(self,'spaceAfter',None),
                     longTableOptimize=lto,
                     cornerRadii = ([0,0] + cornerRadii[2:]) if cornerRadii else None,
+                    renderCB = renderCB,
                     )
 
-            R1._cr_1_0(n,_linecmds)
-            R1._cr_1_0(n,T._bkgrndcmds,_srflMode=True)
-            R1._cr_1_0(n,T._spanCmds)
-            R1._cr_1_0(n,T._nosplitCmds)
+            R1._cr_1_0(n,_linecmds,doInRowSplit)
+            R1._cr_1_0(n,T._bkgrndcmds,doInRowSplit,_srflMode=True)
+            R1._cr_1_0(n,T._spanCmds,doInRowSplit)
+            R1._cr_1_0(n,T._nosplitCmds,doInRowSplit)
         for c in T._srflcmds:
             R1._addCommand(c)
             if c[1][1]!='splitfirst': continue
@@ -2184,26 +2277,58 @@ class Table(Flowable):
     def draw(self):
         c = self.canv
         c.saveState()
-        self._makeRoundedCornersClip()
         self._curweight = self._curcolor = self._curcellstyle = None
+        renderCB = getattr(self,'_renderCB')
+        if renderCB:
+            renderCB(self,'startTable')
+            renderCB(self,'startBG')
+        self._makeRoundedCornersClip()
         self._drawBkgrnd()
+        if renderCB: renderCB(self,'endBG')
         if not self._spanCmds:
             # old fashioned case, no spanning, steam on and do each cell
-            for row, rowstyle, rowpos, rowheight in zip(self._cellvalues, self._cellStyles, self._rowpositions[1:], self._rowHeights):
-                for cellval, cellstyle, colpos, colwidth in zip(row, rowstyle, self._colpositions[:-1], self._colWidths):
-                    self._drawCell(cellval, cellstyle, (colpos, rowpos), (colwidth, rowheight))
+            if renderCB:
+                for rowNo, (row, rowstyle, rowpos, rowheight) in enumerate(zip(self._cellvalues, self._cellStyles, self._rowpositions[1:], self._rowHeights)):
+                    renderCB(self,'startRow',rowNo)
+                    for colNo, (cellval, cellstyle, colpos, colwidth) in enumerate(zip(row, rowstyle, self._colpositions[:-1], self._colWidths)):
+                        renderCB(self,'startCell', rowNo, colNo, cellval, cellstyle, (colpos, rowpos), (colwidth, rowheight))
+                        self._drawCell(cellval, cellstyle, (colpos, rowpos), (colwidth, rowheight))
+                        renderCB(self,'endCell')
+                    renderCB(self,'endRow')
+            else:
+                for row, rowstyle, rowpos, rowheight in zip(self._cellvalues, self._cellStyles, self._rowpositions[1:], self._rowHeights):
+                    for colNo, (cellval, cellstyle, colpos, colwidth) in enumerate(zip(row, rowstyle, self._colpositions[:-1], self._colWidths)):
+                        self._drawCell(cellval, cellstyle, (colpos, rowpos), (colwidth, rowheight))
         else:
             # we have some row or col spans, need a more complex algorithm
             # to find the rect for each
-            for rowNo in range(self._nrows):
-                for colNo in range(self._ncols):
-                    cellRect = self._spanRects[colNo, rowNo]
-                    if cellRect is not None:
-                        (x, y, width, height) = cellRect
-                        cellval = self._cellvalues[rowNo][colNo]
-                        cellstyle = self._cellStyles[rowNo][colNo]
-                        self._drawCell(cellval, cellstyle, (x, y), (width, height))
+            if renderCB:
+                for rowNo in range(self._nrows):
+                    renderCB(self,'startRow',rowNo)
+                    for colNo in range(self._ncols):
+                        cellRect = self._spanRects[colNo, rowNo]
+                        if cellRect is not None:
+                            (x, y, width, height) = cellRect
+                            cellval = self._cellvalues[rowNo][colNo]
+                            cellstyle = self._cellStyles[rowNo][colNo]
+                            renderCB(self,'startCell', rowNo, colNo, cellval, cellstyle, (x, y), (width, height))
+                            self._drawCell(cellval, cellstyle, (x, y), (width, height))
+                            renderCB(self,'endCell')
+                    renderCB(self,'endRow')
+            else:
+                for rowNo in range(self._nrows):
+                    for colNo in range(self._ncols):
+                        cellRect = self._spanRects[colNo, rowNo]
+                        if cellRect is not None:
+                            (x, y, width, height) = cellRect
+                            cellval = self._cellvalues[rowNo][colNo]
+                            cellstyle = self._cellStyles[rowNo][colNo]
+                            self._drawCell(cellval, cellstyle, (x, y), (width, height))
+        if renderCB: renderCB(self,'startLines')
         self._drawLines()
+        if renderCB:
+            renderCB(self,'endLines')
+            renderCB(self,'endTable')
         c.restoreState()
         if self._roundingRectDef:
             self._restoreRoundingObscuredLines()
@@ -2218,7 +2343,7 @@ class Table(Flowable):
         colWidths = self._colWidths
         spanRects = getattr(self,'_spanRects',None)
         for cmd, (sc, sr), (ec, er), arg in self._bkgrndcmds:
-            if sr in ('splitfirst','splitlast'): continue
+            if sr in _SPECIALROWS: continue
             if sc < 0: sc = sc + ncols
             if ec < 0: ec = ec + ncols
             if sr < 0: sr = sr + nrows
@@ -2309,7 +2434,7 @@ class Table(Flowable):
                             P = arg[4] if len(arg)==4 else None
                             canv.linearGradient(ax0, ay0, ax1, ay1, C, positions=P, extend=extend)
                         else:
-                            raise ValueError('Wrong length for %s arguments %r' % (op, arg))
+                            raise ValueError(f'Wrong length for {op!a} arguments {arg!a}')
                     elif arg0=='RADIALGRADIENT':
                         # the remaining arguments define the centre, radius, extend, colors, stops as
                         # center = (xc,yc) given as fractions of width / height
@@ -2331,14 +2456,14 @@ class Table(Flowable):
                             elif ref=='max':
                                 ref = max(w,h)
                             else:
-                                raise ValueError('Bad radius, %r, for %s arguments %r' % (ascii(arg[1]),op, arg))
+                                raise ValueError(f'Bad radius, {arg[1]!a}, for {op!a} arguments {arg!r}')
                             r *= ref
                             extend = arg[2]
                             C = arg[3]
                             P = arg[4] if len(arg)==4 else None
                             canv.radialGradient(xc, yc, r, C, positions=P, extend=extend)
                         else:
-                            raise ValueError('Wrong length for %s arguments %r' % (op, arg))
+                            raise ValueError(f'Wrong length for {op!a} arguments {arg}')
                     canv.restoreState()
                 else:
                     color = colors.toColorOrNone(arg)
@@ -2383,7 +2508,7 @@ class Table(Flowable):
                 elif just in ('CENTRE', 'CENTER'):
                     x = colpos+(colwidth+cellstyle.leftPadding-cellstyle.rightPadding-w)/2.0
                 else:
-                    raise ValueError('Invalid justification %s' % just)
+                    raise ValueError(f'Invalid justification {just!a} for {type(v)}')
                 y -= v.getSpaceBefore()
                 y -= h
                 v.drawOn(self.canv,x,y)
@@ -2402,7 +2527,7 @@ class Table(Flowable):
                 draw = self.canv.drawAlignedString
                 x = colpos + colwidth - cellstyle.rightPadding
             else:
-                raise ValueError('Invalid justification %s' % just)
+                raise ValueError(f'Invalid justification {just!a}')
             vals = str(cellval).split("\n")
             n = len(vals)
             leading = cellstyle.leading
@@ -2415,7 +2540,7 @@ class Table(Flowable):
                 #tim roberts pointed out missing fontsize correction 2004-10-04
                 y = rowpos + (cellstyle.bottomPadding + rowheight-cellstyle.topPadding+n*leading)/2.0 - fontsize
             else:
-                raise ValueError("Bad valign: '%s'" % str(valign))
+                raise ValueError(f'Bad valign: {valign!a}')
 
             for v in vals:
                 draw(x, y, v)
@@ -2435,7 +2560,7 @@ class Table(Flowable):
         if isListOfNumbersOrNone(cornerRadii):
             self._cornerRadii = None if not cornerRadii else list(cornerRadii) + (max(4-len(cornerRadii),0)*[0])
         else:
-            raise ValueError('cornerRadii should be None or a list/tuple of numeric radii')
+            raise ValueError(f'cornerRadii should be None or a list/tuple of numeric radii\nnot {cornerRadii!a}')
 
 _LineOpMap = {  'GRID':'_drawGrid',
                 'BOX':'_drawBox',
@@ -2451,6 +2576,34 @@ class LongTable(Table):
     _longTableOptimize = 1
 
 LINECOMMANDS = list(_LineOpMap.keys())
+
+class TableRenderCB:
+    '''table render callback abstract base klass to be called in Table.draw'''
+    def __call__(self,T,cmd,*args):
+        if not isinstance(T,Table): raise ValueError(f'TableRenderCB first argument, {repr(T)} is not a Table')
+        meth = getattr(self,cmd,None)
+        if not meth: raise ValueError(f'invalid TablerenderCB cmd {cmd}')
+        meth(T,*args)
+    def startTable(self,T):
+        raise NotImplementedError('startTable')
+    def startBG(self,T):
+        raise NotImplementedError('startBG')
+    def endBG(self,T):
+        raise NotImplementedError('endBG')
+    def startRow(self,T,rowNo):
+        raise NotImplementedError('startRow')
+    def startCell(self,T,rowNo, colNo, cellval, cellstyle, pos, size):
+        raise NotImplementedError('startCell')
+    def endCell(self,T):
+        raise NotImplementedError('endCell')
+    def endRow(self,T):
+        raise NotImplementedError('endRow')
+    def startLines(self,T):
+        raise NotImplementedError('startLines')
+    def endLines(self,T):
+        raise NotImplementedError('endLines')
+    def endTable(self,T):
+        raise NotImplementedError('endTable')
 
 def _isLineCommand(cmd):
     return cmd[0] in LINECOMMANDS

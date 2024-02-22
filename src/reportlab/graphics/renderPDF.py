@@ -84,7 +84,7 @@ class _PDFRenderer(Renderer):
             self._canvas.drawInlineImage(
                     path,
                     image.x, image.y,
-                    image.width, image.height
+                    image.width, image.height,
                     )
 
     def drawLine(self, line):

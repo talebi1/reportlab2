@@ -23,13 +23,39 @@ import os, sys
 from io import BytesIO, StringIO
 from math import sin, cos, pi, ceil
 
-try:
-    from reportlab.graphics import _renderPM
-except ImportError as errMsg:
-    raise ImportError("""No module named _renderPM\nit may be badly or not installed!
+def _getPMBackend(backend=None):
+    if not backend: backend = rl_config.renderPMBackend
+    if backend=='_renderPM':
+        try:
+            import _rl_renderPM as M
+        except ImportError as errMsg:
+            try:
+                import rlPyCairo as M
+            except ImportError:
+                raise RenderPMError("""Cannot import desired renderPM backend, {backend}.
+No module named _rl_renderPM
+it may be badly or not installed!
 You may need to install development tools
 or seek advice at the users list see
 https://pairlist2.pair.net/mailman/listinfo/reportlab-users""")
+    elif 'cairo' in backend.lower():
+        try:
+            import rlPyCairo as M
+        except ImportError as errMsg:
+            try:
+                import _rl_renderPM as M
+            except ImportError:
+                raise RenderPMError(f"""cannot import desired renderPM backend {backend}
+Seek advice at the users list see
+https://pairlist2.pair.net/mailman/listinfo/reportlab-users""")
+    else:
+        raise RenderPMError(f'Invalid renderPM backend, {backend}')
+    return M
+
+try:
+    _pmBackend = _getPMBackend(rl_config.renderPMBackend)
+except RenderPMError:
+    _pmBackend=None
 
 def _getImage():
     try:
@@ -92,7 +118,7 @@ class _PMRenderer(Renderer):
 
     def initState(self,x,y):
         deltas = self._tracker._combined[-1]
-        deltas['transform'] = self._canvas._baseCTM[0:4]+(x,y)
+        deltas['transform'] = deltas['ctm'] = self._canvas._baseCTM[0:4]+(x,y)
         self._tracker.push(deltas)
         self.applyState()
 
@@ -257,8 +283,7 @@ def _convert2pil1(im):
 def _saveAsPICT(im,fn,fmt,transparent=None):
     im = _convert2pilp(im)
     cols, rows = im.size
-    #s = _renderPM.pil2pict(cols,rows,im.tostring(),im.im.getpalette(),transparent is not None and Color2Hex(transparent) or -1)
-    s = _renderPM.pil2pict(cols,rows,(im.tobytes if hasattr(im,'tobytes') else im.tostring)(),im.im.getpalette())
+    s = _pmBackend.pil2pict(cols,rows,(im.tobytes if hasattr(im,'tobytes') else im.tostring)(),im.im.getpalette())
     if not hasattr(fn,'write'):
         with open(os.path.splitext(fn)[0]+'.'+fmt.lower(),'wb') as f:
             f.write(s)
@@ -270,7 +295,8 @@ def _saveAsPICT(im,fn,fmt,transparent=None):
 
 BEZIER_ARC_MAGIC = 0.5522847498     #constant for drawing circular arcs w/ Beziers
 class PMCanvas:
-    def __init__(self,w,h,dpi=72,bg=0xffffff,configPIL=None,backend=rl_config.renderPMBackend):
+    def __init__(self,w,h,dpi=72,bg=0xffffff,configPIL=None,backend=None,
+                    backendFmt='RGB'):
         '''configPIL dict is passed to image save method'''
         scale = dpi/72.0
         w = int(w*scale+0.5)
@@ -281,22 +307,30 @@ class PMCanvas:
         self.__dict__['_clipPaths'] = []
         self.__dict__['configPIL'] = configPIL
         self.__dict__['_dpi'] = dpi
-        self.__dict__['_backend'] = backend
+        #the _rl_renderPM.gstate object doesn't support hasattr so we use this as a proxy test for 'isbuiltin' 
+        self.__dict__['_backend'] = '_renderPM' if type(self._gs._aapixbuf)==type(pow) else 'rlPyCairo'
+        self.__dict__['_backendfmt'] = backendFmt
         self.ctm = self._baseCTM
 
     @staticmethod
-    def _getGState(w, h, bg, backend='_renderPM', fmt='RGB24'):
+    def _getGState(w, h, bg, backend=None, fmt='RGB24'):
+        mod = _getPMBackend(backend)
+        if backend is None:
+            backend = rl_config.renderPMBackend
         if backend=='_renderPM':
-            return _renderPM.gstate(w,h,bg=bg)
-        elif backend=='rlPyCairo':
             try:
-                from rlPyCairo import GState
-            except ImportError:
-                raise RenderPMError('cannot import rlPyCairo; perhaps it needs to be installed!')
-            else:
-                return GState(w,h,bg,fmt=fmt)
-        else:
-            raise RenderPMError('Invalid backend, %r, given to PMCanvas' % backend)
+                return mod.gstate(w,h,bg=bg)
+            except TypeError:
+                try:
+                    return mod.GState(w,h,bg,fmt=fmt)
+                except:
+                    pass
+        elif 'cairo' in backend.lower():
+            try:
+                return mod.GState(w,h,bg,fmt=fmt)
+            except AttributeError:
+                return mod.gstate(w,h,bg=bg)
+        raise RuntimeError(f'Cannot obtain PM graphics state using backend {backend!r}')
 
     def _drawTimeResize(self,w,h,bg=None):
         if bg is None: bg = self._bg
@@ -307,14 +341,14 @@ class PMCanvas:
         for k in A.keys():
             A[k] = getattr(gs,k)
         del gs, self._gs
-        gs = self.__dict__['_gs'] = _renderPM.gstate(w,h,bg=bg)
+        gs = self.__dict__['_gs'] = _pmBackend.gstate(w,h,bg=bg)
         for k in A.keys():
             setattr(self,k,A[k])
         gs.setFont(fN,fS)
 
     def toPIL(self):
         im = _getImage().new('RGB', size=(self._gs.width, self._gs.height))
-        (getattr(im,'frombytes',None) or getattr(im,'fromstring'))(self._gs.pixBuf)
+        im.frombytes(self._gs.pixBuf)
         return im
 
     def saveToFile(self,fn,fmt=None):
@@ -732,7 +766,7 @@ def test(outDir='pmout', shout=False):
         errs.append('<pre>%s</pre>' % escape(buf.getvalue()))
 
     #print in a loop, with their doc strings
-    for (drawing, docstring, name) in getAllTestDrawings(doTTF=hasattr(_renderPM,'ft_get_face')):
+    for (drawing, docstring, name) in getAllTestDrawings(doTTF=hasattr(_pmBackend,'ft_get_face')):
         i = names[name] = names.setdefault(name,0)+1
         if i>1: name += '.%02d' % (i-1)
         if argv and name not in argv: continue

@@ -1,5 +1,12 @@
 pillow>=9.0.0
-pycryptodome>=3.9.8
+chardet
 
-[RLPYCAIRO]
-rlPyCairo>=0.0.5
+[accel]
+rl_accel<1.1,>=0.9.0
+
+[pycairo]
+rlPyCairo<1,>=0.2.0
+freetype-py<2.4,>=2.3.0
+
+[renderpm]
+rl_renderPM<4.1,>=4.0.3

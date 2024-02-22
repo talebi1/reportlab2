@@ -3,13 +3,110 @@ CHANGES
 
 This is a summary of changes made to the reportlab source code for each release.
 Please refer to subversion backlogs (using the release dates) for more details
-or for releases which we have not provide a hig`her level changes list for.
+or for releases which we have not provide a higher level changes list for.
 E.g. to retrieve the changes made between release 3.4 and release 3.5, type::
 
   $ hg log -r 54ce2469ba5c
 
 The contributors lists are in no order and apologies to those accidentally not
 mentioned. If we missed you, please let us know!
+
+
+CHANGES  4.1.0 08/02/2024
+-------------------------
+    * No change.  Changes to commercial package, re-released with same version number
+
+CHANGES  4.0.9.1 23/01/2024
+---------------------------
+    * use ttf subsets[0][1:32] fillin
+    * implement drawBoundary as a proper canvas method (removing it from Frame)
+
+CHANGES  4.0.9   08/01/2024
+---------------------------
+    * fix TTFont hmtx bug and force index 0(.notdef) in subsets as better for PDFUA 
+
+CHANGES  4.0.8   11/12/2023
+---------------------------
+    * fix rparsexml bug contributed by Matt Folwell  mjf at pearson co uk 
+    * allow class ddf attributes for Labels
+    * add rl_settings.defCWRF defined col width reduction fraction
+    * fix table wrapping bug contributed by Manuel Koch manuel koch at shinefour de
+
+CHANGES  4.0.7   06/11/2023
+---------------------------
+    * allow testutils.makeSuiteForClasses to specify a prefix for test method names
+    * SpiderChart can have direct draw flowable labels
+    * fix and improve tests for python -mreportlab.lib.rl_accel
+    * fix barchart 3D stacked case & fix barchart valueAxis reverseDirection behaviour.
+
+CHANGES  4.0.6   10/10/2023
+---------------------------
+    * fix importlib usage in reportlab init, reported by Frank Epperlein and others
+    * add value axes extraMinMaxValues as aid to parallel axes
+    * add styles str2alignment maps left/right/center/centre/justify etc
+    * fix validators.isSubclassOf
+    * test ddfStyle as instance first in textlabels.py
+    * allow Pie Doughnut classes to control label class
+
+CHANGES  4.0.5   12/07/2023
+---------------------------
+    * add in test for alpha composite colour
+    * Added an SvgPath class; as used in github.com/deeplook/svglib
+    * Added a simple log axis ticklabeller class
+    * Allow for strokeWidth in LineSwatch
+
+CHANGES  4.0.4   01/06/2023
+---------------------------
+	* update extension alias'
+
+CHANGES  4.0.3   31/05/2023
+---------------------------
+	* allow BalancedColumns to work in a container flowable (ie with no frame)
+	* allow custom styles for inrowsplitStaart & inrowsplitend
+
+CHANGES  4.0.2   16/05/2023
+---------------------------
+	* setup.py test --failfast works
+    * allow running all tests without renderPM support
+
+CHANGES  4.0.1   12/05/2023
+---------------------------
+	* AR made some changes to allow running without renderPM support
+
+CHANGES  4.0.0   04/05/2023
+---------------------------
+	* AR merged accessibility branch and released 4.0.0
+
+CHANGES  4.0.0a3 18/04/2023
+---------------------------
+	* initial support for rml ul ol dl tagging
+    * added support for an ol/ul/dl caption paragraph
+	* implement a safer toColor with rl_config.toColorCanUse option and rl_extended_literal_eval
+
+CHANGES  4.0.0a2 14/03/2023
+---------------------------
+	* added _ExpandedCellTupleEx for more tagging support
+
+CHANGES  4.0.0a1 08/03/2023
+---------------------------
+	* release 4.0.0a1 with support for rlextra pluscode
+
+CHANGES  3.6.13  24/04/2023
+---------------------------
+	* fixes for python 3.12.0a1
+	* tables.py error improvement
+	* allow exclusions in tests in runAll.py and setup.py; allows for coverage.py importing failures.
+	* implement a safer toColor with rl_config.toColorCanUse option and rl_extended_literal_eval
+
+CHANGES  3.6.12  25/10/2022
+---------------------------
+	* fix dpi handling in renderPM.py; bug found by Terry Zhao Terry dot Zhao at fil dot com
+	* attempt fix in rparsexml.py
+	* add rl_settings.xmlParser with default 'lxml'
+	* nano RHEL related fix to setup.py contributed by James Brown jbrown at easypost dot com
+	* minor speedup in reportlab.graphics.transform functions
+	* allow usage of freetype testpaths via rl_config/rl_settings textPaths
+	* _renderPM.c remove parse_utf8, make pict_putrow same as for rlPyCairo
 
 CHANGES  3.6.11  24/06/2022
 ---------------------------

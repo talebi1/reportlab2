@@ -3,7 +3,7 @@
 """
 Tests for chart class.
 """
-from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation, rlextraNeeded
+from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation, rlextraNeeded, haveRenderPM, rlSkipIf
 setOutDir(__name__)
 
 import os, sys, copy
@@ -32,9 +32,10 @@ from reportlab.graphics.widgets.markers import makeMarker
 from reportlab.graphics.widgets.adjustableArrow import AdjustableArrowDrawing
 
 try:
-    from reportlab.graphics import _renderPM
+    from reportlab.graphics import renderPM
+    if not haveRenderPM(): renderPM = None
 except ImportError:
-    _renderPM = None
+    renderPM = None
 
 def getFontName():
     try:
@@ -331,10 +332,18 @@ def eps():
 
 def run_samples(L):
     outDir = outputfile('charts-out')
-    for k,f,kind in L:
-        d = f()
-        if not isinstance(d,Drawing): continue
-        d.save(formats=['pdf', 'gif', 'svg', 'ps', 'py']+eps(),outDir=outDir, fnRoot='test_graphics_charts_%s_%s' % (kind,k))
+    global fontName
+    oFontName = fontName
+    def innerRun(formats):
+        for k,f,kind in L:
+            d = f()
+            if not renderPM: d.__dict__['preview'] = 0
+            if not isinstance(d,Drawing): continue
+            d.save(formats=formats,outDir=outDir, fnRoot='test_graphics_charts_%s_%s' % (kind,k))
+    innerRun(['pdf']+(['gif'] if renderPM else [])+['svg', 'py']+eps())
+    fontName = 'Helvetica'
+    innerRun(['ps'])
+    fontName = oFontName
 
 class ChartTestCase(unittest.TestCase):
     "Test chart classes."
@@ -353,8 +362,6 @@ class ChartTestCase(unittest.TestCase):
         doc = MyDocTemplate(path)
         doc.build(cls.story)
 
-        global fontName
-        fontName = 'Helvetica'
         run_samples([(k,v,'special') for k,v in globals().items() if k.lower().startswith('sample')
                             or k in ('lpleg', 'hlcleg', 'bcleg', 'pcleg', 'scleg', 'plpleg')
                             ])
@@ -519,7 +526,7 @@ class ChartTestCase(unittest.TestCase):
             story.append(makeArrow(y=-10,x=deltax*i,angle=angle,strokeColor=colors.black,strokeWidth=0.5,headSweep=-i*0.6))
         story.append(Spacer(0,1*cm))
 
-    @unittest.skipIf(not _renderPM,'no _renderPM')
+    @rlSkipIf(not renderPM,'no renderPM')
     def test8(self):
         '''text _text2Path'''
         story = self.story
@@ -616,42 +623,6 @@ class ChartTestCase(unittest.TestCase):
             xAxis.setPosition(75, 75, 300)
             xAxis.configure(data)
             xAxis.categoryNames = ['Ying']
-            xAxis.labels.boxAnchor = 'n'
-            drawing.add(xAxis)
-            return drawing
-
-        @unittest.skipIf(rlextraNeeded(),'s')
-        def sample0c():
-            "Sample drawing with one xcat axis and two buckets."
-            class DDFStyle(ParagraphStyle):
-                def __init__(self,**kwds):
-                    if 'fillColor' in kwds:
-                        kwds['textColor'] = kwds.pop('fillColor')
-                    kwds.update({k:v for k,v in (
-                                    ('name','DDFStyle'),
-                                    ('alignment',0),
-                                    ('hyphenationLang',None),
-                                    ('hyphenationMinWordLength',4),
-                                    ('uriWasteReduce',0.3),
-                                    ('embeddedHyphenation',2),
-                                    ('textColor',colors.blue),
-                                    ('backColor',colors.yellow),
-                                    ) if k not in kwds})
-                    super().__init__(**kwds)
-
-            drawing = Drawing(400, 200)
-            data = [(10, 20)]
-            xAxis = XCategoryAxis()
-            xAxis.labels.ddfKlass = Paragraph
-            xAxis.labels.ddfStyle = DDFStyle
-            xAxis.labels.maxWidth = 48
-            xAxis.labels.fillColor = colors.red
-            xAxis.labels.fontName = 'Helvetica'
-            xAxis.labels.fontSize = 12
-            xAxis.labels.leading = 12
-            xAxis.setPosition(75, 75, 100)
-            xAxis.configure(data)
-            xAxis.categoryNames = ['Ying and Mao\xadTse\xadTung are bonkers', 'Yang is not a comm\xadun\xadist']
             xAxis.labels.boxAnchor = 'n'
             drawing.add(xAxis)
             return drawing
@@ -1097,6 +1068,135 @@ class ChartTestCase(unittest.TestCase):
 
         run_samples([(k,v,'axes') for k,v in locals().items() if k.lower().startswith('sample')])
         run_samples(extract_samples())
+
+    @rlSkipIf(rlextraNeeded(),'rlextra needed')
+    def test_axes_rlx(self):
+        from reportlab.graphics.charts.axes import YValueAxis, XValueAxis, LogYValueAxis, LogXValueAxis, LogYValueAxis, XCategoryAxis, YCategoryAxis
+        def sample0c():
+            "Sample drawing with one xcat axis and two buckets."
+            class DDFStyle(ParagraphStyle):
+                def __init__(self,**kwds):
+                    if 'fillColor' in kwds:
+                        kwds['textColor'] = kwds.pop('fillColor')
+                    kwds.update({k:v for k,v in (
+                                    ('name','DDFStyle'),
+                                    ('alignment',0),
+                                    ('hyphenationLang',None),
+                                    ('hyphenationMinWordLength',4),
+                                    ('uriWasteReduce',0.3),
+                                    ('embeddedHyphenation',2),
+                                    ('textColor',colors.blue),
+                                    ('backColor',colors.yellow),
+                                    ) if k not in kwds})
+                    super().__init__(**kwds)
+
+            drawing = Drawing(400, 200)
+            data = [(10, 20)]
+            xAxis = XCategoryAxis()
+            xAxis.labels.ddfKlass = Paragraph
+            xAxis.labels.ddfStyle = DDFStyle
+            xAxis.labels.maxWidth = 48
+            xAxis.labels.fillColor = colors.red
+            xAxis.labels.fontName = 'Helvetica'
+            xAxis.labels.fontSize = 12
+            xAxis.labels.leading = 12
+            xAxis.setPosition(75, 75, 100)
+            xAxis.configure(data)
+            xAxis.categoryNames = ['Ying and Mao\xadTse\xadTung are bonkers', 'Yang is not a comm\xadun\xadist']
+            xAxis.labels.boxAnchor = 'n'
+            drawing.add(xAxis)
+            return drawing
+        run_samples([(k,v,'axes') for k,v in locals().items() if k.lower().startswith('sample')])
+
+    @rlSkipIf(rlextraNeeded(),'rlextra needed')
+    def test_ddf_labels(self):
+        from reportlab.graphics.charts.piecharts import Pie, WedgeLabel
+        from reportlab.graphics.charts.doughnut import Doughnut
+        from reportlab.graphics.charts.spider import SpiderChart, SpokeLabel, StrandLabel
+        from reportlab.platypus import Paragraph, XPreformatted
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle, str2alignment
+        def samplePieDDFLabels():
+            d = Drawing(width=200,height=200)
+            pie = Pie()
+            d.add(pie)
+            pie.x = 30
+            pie.y = 30
+            pie.width = 130
+            pie.height = 130
+            ss = getSampleStyleSheet()
+            pie.labels = ('<u>a<sup><span color="red">2</span></sup></u><br/>2', 'b<sup><span color="red">2</span></sup>','c','d')
+            DWL = type('DWL',(WedgeLabel,),{})
+            dwlStyle = ss['Normal'].clone('DWL',fontSize=12,autoLeading='min')
+            pie.labelClass = lambda : DWL(ddfKlass=Paragraph,ddfStyle=dwlStyle)
+            #pie.labelClass = lambda : DWL(ddfKlass=XPreformatted)
+            pie.slices.label_textAnchor = 'middle'
+            pie.slices.fontName = fontName
+            pie.simpleLabels = 0
+            return d
+
+        def sampleDoughnutDDFLabels():
+            d = Drawing(width=200,height=200)
+            dnut = Doughnut()
+            d.add(dnut)
+            dnut.x = 30
+            dnut.y = 30
+            dnut.width = 130
+            dnut.height = 130
+            ss = getSampleStyleSheet()
+            dnut.labels = ('<u>a<sup><span color="red">2</span></sup></u><br/>2', 'b<sup><span color="red">2</span></sup>','c','d')
+            DWL = type('DWL',(WedgeLabel,),{})
+            dwlStyle = ss['Normal'].clone('DWL',fontSize=12,autoLeading='min')
+            dnut.labelClass = lambda : DWL(ddfKlass=Paragraph,ddfStyle=dwlStyle)
+            #dnut.labelClass = lambda : DWL(ddfKlass=XPreformatted)
+            dnut.slices.label_textAnchor = 'middle'
+            dnut.slices.fontName = fontName
+            dnut.simpleLabels = 0
+            return d
+
+        def sampleSpiderDDFLabels():
+            d = Drawing(width=200,height=200)
+            sp = SpiderChart()
+            d.add(sp)
+            sp.x = 30
+            sp.y = 30
+            sp.width = 130
+            sp.height = 130
+            ss = getSampleStyleSheet()
+            sp.data = [[10,12,14,16,14,12], [6,8,10,12,9,15],[7,8,17,4,12,8]]
+            SKL = type('SKL',(SpokeLabel,),{})
+            sklStyle = ss['Normal'].clone('SKL',fontSize=12,autoLeading='min')
+            sp.spokeLabelClass = lambda : SKL(ddfKlass=Paragraph,ddfStyle=sklStyle)
+            sp.spokeLabels.textAnchor='middle'
+            sp.spokeLabels.fontName = fontName
+            sp.spokes.labelRadius     = 1.15
+            #sp.spokeLabelClass = lambda : SKL(ddfKlass=XPreformatted)
+            sp.labels = ['<u>U<sup><span color="red">2</span></sup></u><br/>3','V<sup><span color="red">3</span></sup>','W','X','Y','Z']
+            sp.strands.strokeWidth = 1
+            SDL = type('SDL',(StrandLabel,),{})
+            sdlStyle = ss['Normal'].clone('SDL',fontSize=12,autoLeading='min')
+            sp.strandLabelClass = lambda : SDL(ddfKlass=Paragraph,ddfStyle=sdlStyle)
+            sp.strands[0].fillColor = colors.pink
+            sp.strands[1].fillColor = colors.lightblue
+            sp.strands[2].fillColor = colors.palegreen
+            sp.strands[0].strokeColor = colors.red
+            sp.strands[1].strokeColor = colors.blue
+            sp.strands[2].strokeColor = colors.green
+            sp.strands.symbol = "FilledDiamond"
+            sp.strands[1].symbol = makeMarker("Circle")
+            sp.strands[1].symbol.strokeWidth = 0.5
+            sp.strands[1].symbol.fillColor = colors.yellow
+            sp.strands.symbolSize = 6
+            sp.strandLabels.fontName = fontName
+            sp.strandLabels[0,3]._text = 'special'
+            sp.strandLabels[0,1]._text = 'one'
+            sp.strandLabels[0,0]._text = 'zero'
+            sp.strandLabels[1,0]._text = 'Earth<sup>1</sup>'
+            sp.strandLabels[1,0].dR = -7
+            sp.strandLabels[2,2]._text = 'Mars'
+            sp.strandLabels.format = 'values'
+            sp.strandLabels.dR = -5
+            return d
+        run_samples([(k,v,'ddf') for k,v in locals().items() if k.lower().startswith('sample')])
 
     def test_legends(self):
         from reportlab.graphics.charts.legends import Legend, LineLegend, LineSwatch

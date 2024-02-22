@@ -15,7 +15,7 @@ from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, p
 from unittest.mock import patch
 setOutDir(__name__)
 import copy, sys, os
-from reportlab.pdfgen import canvas
+from reportlab.pdfgen.canvas import ShowBoundaryValue
 from reportlab import platypus
 from reportlab.platypus import BaseDocTemplate, PageTemplate, Flowable, FrameBreak, KeepTogether, PageBreak, Spacer
 from reportlab.platypus import Paragraph, Preformatted
@@ -605,7 +605,6 @@ class PlatypusTestCase(unittest.TestCase):
 
     def test2(self):
         '''ensure showBoundaryValue works as expected'''
-        from reportlab.platypus.frames import ShowBoundaryValue
         assert (1 if ShowBoundaryValue(width=1) else 0) == 1
         assert (1 if ShowBoundaryValue(color=None,width=1) else 0) == 0
         assert (1 if ShowBoundaryValue(width=-1) else 0) == 0
@@ -614,7 +613,7 @@ class PlatypusTestCase(unittest.TestCase):
         assert bool(ShowBoundaryValue(width=-1)) == False
 
     def test3(Self):
-        from reportlab.platypus import BalancedColumns, IndexingFlowable, ShowBoundaryValue, NullDraw
+        from reportlab.platypus import BalancedColumns, IndexingFlowable, NullDraw
         doc = SimpleDocTemplate(outputfile('test_balancedcolumns.pdf'))
         styleSheet = getSampleStyleSheet()
 
@@ -748,6 +747,14 @@ This should be a mailto link <a href="mailto:reportlab-users@lists2.reportlab.co
         balanced(spam=xtra_spam)
         second()
         doc.build(story)
+
+    def test4(Self):
+        '''existence test for reportlab/platypus/para.py
+        contributed by Matt Folwell mjf at pearson co uk'''
+        from reportlab.platypus.para import Paragraph
+        from reportlab.lib.styles import ParagraphStyle
+        style = ParagraphStyle("trivial")
+        Paragraph("&amp;", style)
 
 def makeSuite():
     return makeSuiteForClasses(PlatypusTestCase)

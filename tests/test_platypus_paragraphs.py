@@ -3,11 +3,11 @@
 """Tests for the reportlab.platypus.paragraphs module.
 """
 __version__='3.3.0'
-from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation
+from reportlab.lib.testutils import setOutDir,makeSuiteForClasses, outputfile, printLocation, rlSkipUnless
 setOutDir(__name__)
 import sys, os, unittest
 from operator import truth
-from reportlab.pdfgen.canvas import Canvas
+from reportlab.pdfgen.canvas import Canvas, ShowBoundaryValue
 from reportlab.pdfbase.pdfmetrics import stringWidth, registerFont, registerFontFamily
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus.paraparser import ParaParser
@@ -18,7 +18,7 @@ from reportlab.lib.enums import TA_LEFT, TA_RIGHT, TA_CENTER, TA_JUSTIFY
 from reportlab.lib.utils import _className, asBytes, asUnicode, asNative
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus.xpreformatted import XPreformatted
-from reportlab.platypus.frames import Frame, ShowBoundaryValue
+from reportlab.platypus import Frame
 from reportlab.platypus.doctemplate import PageTemplate, BaseDocTemplate, PageBreak, NextPageTemplate
 from reportlab.platypus import tableofcontents
 from reportlab.platypus.tableofcontents import TableOfContents
@@ -171,7 +171,7 @@ class ParagraphCorners(unittest.TestCase):
     def test5(self):
         '''some soft hyphenation'''
         from reportlab.pdfgen import canvas
-        from reportlab.platypus import Frame, ShowBoundaryValue, Paragraph
+        from reportlab.platypus import Frame, Paragraph
         from reportlab.lib.styles import ParagraphStyle
 
         pagesize = (80+20, 400)
@@ -502,7 +502,7 @@ providing the ultimate in ease of installation.''',
         doc = MyDocTemplate(outputfile('test_platypus_imageandflowables.pdf'),showBoundary=1)
         doc.multiBuild(story)
 
-    @unittest.skipUnless(rtlSupport,'s')
+    @rlSkipUnless(rtlSupport,'no RTL support')
     def test1_RTL(self):
         "ParagraphSplitTestCase.test_RTL"
         from reportlab.platypus.flowables import ImageAndFlowables, Image
@@ -699,7 +699,7 @@ providing the ultimate in ease of installation.''',
         doc = MyDocTemplate(outputfile('test_platypus_imageandflowables_rtl.pdf'),showBoundary=1)
         doc.multiBuild(story)
 
-    @unittest.skipUnless(rtlSupport and haveDejaVu(),'s')
+    @rlSkipUnless(rtlSupport and haveDejaVu(),'miss RTL and/or DejaVu')
     def test2_RTL(self):
         '''example & bugfix contributed by Moshe Uminer < mosheduminer at gmail.com >'''
         from reportlab.platypus import Paragraph, PageBreak
@@ -855,7 +855,7 @@ providing the ultimate in ease of installation.''',
                 """<unichar code="open('/tmp/test.txt','w').write('Hello from unichar')"/>""",
                 normal)
 
-    @unittest.skipUnless(trustedHosts,'s')
+    @rlSkipUnless(trustedHosts,'no trusted hosts')
     def test_badUri0(self):
         """test we catch bad hosts"""
         normal = getSampleStyleSheet()['BodyText']
@@ -869,7 +869,7 @@ providing the ultimate in ease of installation.''',
                 """<img src='https://www.reportlab.com:5000'/>""",
                 normal)
 
-    @unittest.skipUnless(trustedSchemes,'s')
+    @rlSkipUnless(trustedSchemes,'no trusted schemes')
     def test_badUri1(self):
         """test we catch bad schemes"""
         normal = getSampleStyleSheet()['BodyText']
@@ -1017,7 +1017,7 @@ class FragmentTestCase(unittest.TestCase):
             applyTest('httpsSSwwwDrepor-tlabDcomSpypiSpackages', 0.3, True, [u'httpsSSwwwDrepor-', u'tlabDcomSpypiSpackages'],split=split) #should succeed because '-' with no non-letters
             applyTest('httpsSSwwwDrepor-tlabDcomSpypiSpackages', 0.3, False, None, split=split) #fails because embeddedHyphenation=False
 
-    @unittest.skipUnless(pyphen,'s')
+    @rlSkipUnless(pyphen,'pyphen missing')
     def test6(self):
         bt = getSampleStyleSheet()['BodyText']
         bt.fontName = 'Helvetica'
@@ -1085,7 +1085,7 @@ class FragmentTestCase(unittest.TestCase):
             y = _t(S[1],x,y,naW,aH=naH)
         canv.save()
 
-    @unittest.skipUnless(pyphen,'s')
+    @rlSkipUnless(pyphen,'need pyphen')
     def test7(self):
         """test various ways to adjust the hypenationMinWordLength"""
         registerFont(TTFont("Vera", "Vera.ttf"))
@@ -1121,7 +1121,7 @@ class FragmentTestCase(unittest.TestCase):
             w,h = p.wrap(aW,0x7fffffff)
             self.assertEqual(h,ex,'Russion hyphenation test failed for ex=%(ex)s template=%(template)r hymwl=%(hymwl)r h=%(h)s\ntext=%(t)r' % locals())
 
-    @unittest.skipUnless(pyphen,'s')
+    @rlSkipUnless(pyphen,'need pyphen')
     def test8(self):
         """display splitting of hyphenated words"""
         from reportlab.lib.pagesizes import A4
@@ -1734,7 +1734,7 @@ impose an interpretation on the system of base rules exclusive of the
         doc = MyDocTemplate(outputfile('test_platypus_paragraphs_nbsp.pdf'))
         doc.build(story)
 
-    @unittest.skipUnless(haveDejaVu(),'s')
+    @rlSkipUnless(haveDejaVu(),'need DejaVu Font')
     def testParaEntities(self):
         tentities(b'unicode formatted paragraphs',False,outputfile('test_platypus_unicode_paragraph_entities.pdf'))
         tentities(b'byte formatted paragraphs',True,outputfile('test_platypus_bytes_paragraph_entities.pdf'))
